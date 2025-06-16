@@ -1,0 +1,154 @@
+"0","knitr::opts_chunk$set(echo = TRUE)"
+"0",""
+"0","library(easypackages)"
+"0",""
+"0","# HOW TO INSTALL SVA"
+"0","# https://bioconductor.org/packages/release/bioc/html/sva.html"
+"0",""
+"0","libraries(""here"","
+"0","          ""ggplot2"","
+"0","          ""tidyverse"", "
+"0","          ""psych"", "
+"0","          ""reticulate"","
+"0","          ""graph4lg"", "
+"0","          ""ade4"", "
+"0","          ""vegan"","
+"0","          ""similaritymodels"","
+"0","          ""caret"","
+"0","          ""tidyverse"","
+"0","          ""robustbase"","
+"0","          ""egg"","
+"0","          ""reshape2"","
+"0","          ""lme4"","
+"0","          ""lmerTest"","
+"0","          ""cocor"","
+"0","          ""sva"","
+"0","          ""multcomp"","
+"0","          ""lmtest"","
+"0","          ""knitr"","
+"0","          ""kableExtra"")"
+"2","Loading required package: sva
+"
+"2","Loading required package: genefilter
+"
+"2","
+Attaching package: ‘genefilter’
+
+"
+"2","The following object is masked from ‘package:psych’:
+
+    AUC
+
+"
+"2","The following object is masked from ‘package:readr’:
+
+    spec
+
+"
+"2","Loading required package: BiocParallel
+"
+"2","Warning:"
+"2"," package ‘BiocParallel’ was built under R version 4.4.3
+"
+"2","Loading required package: multcomp
+"
+"2","Loading required package: mvtnorm
+"
+"2","Loading required package: survival
+"
+"2","
+Attaching package: ‘survival’
+
+"
+"2","The following object is masked from ‘package:robustbase’:
+
+    heart
+
+"
+"2","The following object is masked from ‘package:caret’:
+
+    cluster
+
+"
+"2","Loading required package: TH.data
+"
+"2","Loading required package: MASS
+"
+"2","
+Attaching package: ‘MASS’
+
+"
+"2","The following object is masked from ‘package:genefilter’:
+
+    area
+
+"
+"2","The following object is masked from ‘package:dplyr’:
+
+    select
+
+"
+"2","
+Attaching package: ‘TH.data’
+
+"
+"2","The following object is masked from ‘package:MASS’:
+
+    geyser
+
+"
+"2","Loading required package: lmtest
+"
+"2","Loading required package: zoo
+"
+"2","
+Attaching package: ‘zoo’
+
+"
+"2","The following objects are masked from ‘package:base’:
+
+    as.Date, as.Date.numeric
+
+"
+"2","Loading required package: knitr
+"
+"2","Loading required package: kableExtra
+"
+"2","
+Attaching package: ‘kableExtra’
+
+"
+"2","The following object is masked from ‘package:dplyr’:
+
+    group_rows
+
+"
+"2","All packages loaded successfully
+"
+"0","codepath = here(""code"")"
+"0","resultpath = here(""results"")"
+"0","datapath = here(""data"")"
+"0","plotpath = here(""plots"")"
+"0",""
+"0","# set random seed"
+"0","set.seed(999)"
+"0",""
+"0","# choose alpha (hypothesis testing sig. threshold)"
+"0","alpha <- 0.05"
+"0",""
+"0","# pubertal ages to test"
+"0","pubertal_ages <- c(9, 10, 11, 12)"
+"0",""
+"0","# n of age similarity models we will build"
+"0","n_behave_models = 11"
+"0",""
+"0","# make plots pretty"
+"0",""
+"0","#https://stackoverflow.com/questions/6736378/how-do-i-change-the-background-color-of-a-plot-made-with-ggplot2"
+"0","mytheme <- list("
+"0","  theme_classic()+"
+"0","    theme(panel.background = element_blank(),strip.background = element_rect(colour=NA, fill=NA),panel.border = element_rect(fill = NA, color = ""black""),"
+"0","          legend.title = element_blank(),legend.position=""bottom"", strip.text = element_text(face=""bold"", size=9),"
+"0","          axis.text=element_text(face=""bold""),axis.title = element_text(face=""bold""),plot.title = element_text(face = ""bold"", hjust = 0.5,size=13))"
+"0",")"
+"0",""

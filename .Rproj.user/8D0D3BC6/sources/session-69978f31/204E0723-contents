@@ -1,0 +1,795 @@
+---
+title: "punctuated_similarity_test"
+author: "Sarah K. Crockford"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r some functions}
+
+# Function to compute divergence similarity
+divergence <- function(behave_data){
+
+  divergence_df <- data.frame()
+
+  sample_max <- max(behave_data)
+
+  for (i in 1:length(behave_data)){
+    for (j in 1:length(behave_data)){
+
+      pair_vec <- c(behave_data[[i]], behave_data[[j]])
+      output_conv <- mean(pair_vec)
+      divergence_df[i, j] <- (sample_max - output_conv)
+
+    }}
+
+  return(divergence_df)
+}
+
+make_similarity_matrices <- function(behave_vec,
+                                     index,
+                                     center_value_list,
+                                     resultpath,
+                                     save_out){
+
+  dataframes2loopthrough <- list()
+
+  behave_nn <- nearest_neighbours(behave_vec) # absolute difference
+  nn_name <- "behave_nn"
+  behave_conv <- convergence(behave_vec) # minimum pair
+  conv_name <- "behave_conv"
+  behave_div <- divergence(behave_vec) # max(sample) - minimum pair
+  div_name <- "behave_div"
+
+  df_names_finn <- c(nn_name, conv_name, div_name)
+
+  df_names_behave <- c()
+  df_names_punctuated <- c()
+  
+  for (i in 1:length(center_value_list)){
+    behave_bow <- bow_tie(behave_vec, center_value_list[i]) # see function
+    behave_punct <- punctuated(behave_vec, center_value_list[i]) # see function
+
+    df_name <- paste0('punctuacted_', center_value_list[i])
+    df_names_behave[i] <- df_name
+    
+    df_name_punct <- paste0('punctuated_nn_', center_value_list[i])
+    df_names_punctuated[i] <- df_name_punct
+
+    assign(df_name, behave_bow)
+    assign(df_name_punct, behave_punct)
+  }
+
+  df_names <- c(df_names_finn, df_names_behave, df_names_punctuated)
+
+  dataframes2loopthrough <- do.call("list", mget(df_names))
+
+  for (df in 1:length(dataframes2loopthrough)){
+
+    df2use <- dataframes2loopthrough[[df]]
+
+    dfname <- names(dataframes2loopthrough)
+
+    final_df <- scale_matrix(df2use)
+
+    # replace diagonal values with 1
+    diag(final_df) <- round(1, digits = 0)
+    rownames(final_df) <- index
+
+    assign(dfname[df], final_df)
+
+    saveoutfilepath <- file.path(resultpath,
+                                 paste0(dfname[df], ".csv"))
+
+    if(save_out == TRUE){
+      write.csv(final_df, saveoutfilepath, row.names=FALSE)}
+
+  }
+
+  final_dataframes2loopthrough <- do.call("list", mget(df_names))
+  
+  return(final_dataframes2loopthrough)
+
+} # end function run behave model similarity
+
+
+# compute similarity on single value output
+
+compute_single_variable_similarity <- function(single_v_data, 
+                                               subids,
+                                               name2use,
+                                               resultpath,
+                                               save_out){
+  
+  matrix_similarity = data.frame()
+  
+  for (i in 1:length(single_v_data)){
+    for (j in 1:length(single_v_data)){
+      
+      data_i = single_v_data[[i]]
+      data_j = single_v_data[[j]]
+      
+      abs_diff = abs(data_i - data_j)
+      
+      matrix_similarity[i, j] = abs_diff
+      
+    }}
+      
+  matrix_scaled = 1 - scale_matrix(matrix_similarity)
+  
+  rownames(matrix_scaled) = subids
+  colnames(matrix_scaled) = subids
+  
+  saveoutfilename <- paste0(name2use, ".csv")
+  saveoutfilepath <- file.path(resultpath, 
+                                saveoutfilename)
+  
+  if (save_out == TRUE){
+    write.csv(matrix_scaled, saveoutfilepath, row.names=FALSE)}
+  
+  return(as.matrix(matrix_scaled))
+}
+
+mantel_results_models <- function(x, y, nperm, n_models){
+  
+  # function takes two separate lists of dataframes as arguments
+  # where x = list of data frames that model behavioral similarity (4 models)
+  # and y = list of data frames that model dependent variable similarity
+  # nperm is the n of permutations you want to run (i.e. 1000)
+  # n_models is the number of behavioral models you are using FIX ME
+  
+  # using package vegan for the mantel() function, with spearman method*
+  # *because distribution of similarity is not parametric 
+  # cit. https://jkzorz.github.io/2019/07/08/mantel-test.html
+  
+  # NB: switched to the vegan package, because the metan one was defaulting into spearman and there was no way to edit that (we need a non-parametric test)
+  
+  n_comparisons = length(y)
+
+  len_final_df = n_models*n_comparisons
+
+  model_res_r <- data.frame()
+  model_res_p <- data.frame()
+  rownames_df <- data.frame()
+
+  modelname = names(x)
+  comparisonname = names(y)
+
+  for (i in 1:length(x)){
+    for (j in 1:length(y)){
+
+        result_name <- paste0(modelname[i], comparisonname[j])
+
+        model2use = x[[i]]
+        data2use = y[[j]]
+
+        model_out = mantel(model2use,
+                           data2use,
+                           method = "spearman",
+                           permutations = nperm,
+                           na.rm = TRUE)
+
+        model_res_r <- rbind(model_res_r, 
+                             model_out$statistic) # r-value
+        model_res_p <- rbind(model_res_p, 
+                             model_out$signif) # p-value
+
+        rownames_df <- rbind(rownames_df, result_name)
+    }}
+
+  colnames(model_res_r) <- "r"
+  colnames(model_res_p) <- "p_value"
+
+  model_res <- cbind(model_res_p, model_res_r)
+  rownames(model_res) <- rownames_df[[1]]
+
+  model_res$p_value_adjusted <- p.adjust(model_res$p_value,
+                                         method = "fdr")
+
+  return(model_res)
+
+} # end function mantel_results_models
+
+
+compare_correlations <- function(r1_value,
+                                 r2_value,
+                                 alpha_level,
+                                 n_1,
+                                 n_2){
+  
+  # NB: applies to BOTH Pearson or Spearman's
+  
+  # REFs
+  # https://blogs.sas.com/content/iml/2017/09/20/fishers-transformation-correlation.html
+  # https://www.medcalc.org/manual/comparison-of-correlation-coefficients.php
+  # Fisher (1925): http://krishikosh.egranth.ac.in/bitstream/1/2048218/1/0039_2689A.pdf
+  # p_value from z score: https://www.r-bloggers.com/2022/05/calculate-the-p-value-from-z-score-in-r/
+  
+  # as a test case I used the exact values in the Medcalc link
+  # and I got the same results 
+  
+  result_names <- c("r_values",
+                    "z_scores",
+                    "standard_error",
+                    "Fisher's z",
+                    "p_value",
+                    "significance")
+  result <- vector("list", length(result_names))
+  names(result) <- result_names
+  
+  # save the original r values
+  result[["r_values"]] <- c("r1" = r1_value, "r2" = r2_value)
+  
+  # calculate z scores for the two pearson r coefficients
+  z1_value <- (1/2)*log((1+r1_value)/(1-r1_value)) 
+  z2_value <- (1/2)*log((1+r2_value)/(1-r2_value)) 
+  result[["z_scores"]] <- c("z1" = z1_value, "z2" = z2_value)
+  
+  # calculate the standard error based on sample size
+  se_value1 <- (1/(n_1 - 3))
+  se_value2 <- (1/(n_2 - 3))
+  
+  standard_error <- sqrt(se_value1 + se_value2)
+  result[["standard_error"]] <- standard_error
+  
+  # compute Fisher's z
+  # NB: we need to take the absolute value because this 
+  # eliminates the effect of which correlation is 
+  # first and which is second
+  
+  z <- abs((z1_value - z2_value)/standard_error)
+  result[["Fisher's z"]] <- z
+  
+  # test significance of Fisher's z (rounded to 4 decimal places)
+  # need to see the lower.tail to FALSE as we are only 
+  # evaluating positive z scores 
+  p_value <- pnorm(z, lower.tail = FALSE)
+  p_value_formatted <- format(round(p_value, 4), nsmall = 4)
+  
+  significant <- ifelse(p_value > alpha_level, "No", "Yes")
+  
+  result[["p_value"]] <- p_value_formatted 
+  result[["significance"]] <- significant
+  
+  return(result)
+}
+
+```
+
+```{r setup}
+library(easypackages)
+
+# HOW TO INSTALL SVA
+# https://bioconductor.org/packages/release/bioc/html/sva.html
+
+libraries("here",
+          "ggplot2",
+          "tidyverse", 
+          "psych", 
+          "reticulate",
+          "graph4lg", 
+          "ade4", 
+          "vegan",
+          "similaritymodels",
+          "caret",
+          "tidyverse",
+          "robustbase",
+          "egg",
+          "reshape2",
+          "lme4",
+          "lmerTest",
+          "cocor",
+          "sva",
+          "multcomp",
+          "lmtest",
+          "knitr",
+          "kableExtra")
+
+
+codepath = here("code")
+resultpath = here("results")
+datapath = here("data")
+plotpath = here("plots")
+
+# set random seed
+set.seed(999)
+
+# choose alpha (hypothesis testing sig. threshold)
+alpha <- 0.05
+
+# pubertal ages to test
+pubertal_ages <- c(9, 10, 11, 12)
+
+# n of age similarity models we will build
+n_behave_models = 11
+
+# make plots pretty
+
+#https://stackoverflow.com/questions/6736378/how-do-i-change-the-background-color-of-a-plot-made-with-ggplot2
+mytheme <- list(
+  theme_classic()+
+    theme(panel.background = element_blank(),strip.background = element_rect(colour=NA, fill=NA),panel.border = element_rect(fill = NA, color = "black"),
+          legend.title = element_blank(),legend.position="bottom", strip.text = element_text(face="bold", size=9),
+          axis.text=element_text(face="bold"),axis.title = element_text(face="bold"),plot.title = element_text(face = "bold", hjust = 0.5,size=13))
+)
+
+```
+
+```{r read data}
+height_df <- read.csv(file.path(datapath, "NCD_RisC_Nature_2023_height_child_adolescent_global.csv"))
+
+boys_height_df <- subset(height_df, height_df$Sex == "Boys")
+girls_height_df <- subset(height_df, height_df$Sex == "Girls")
+
+print(paste0("Number of boys in sample: ", nrow(boys_height_df)))
+print(paste0("Number of girls in sample: ", nrow(girls_height_df)))
+
+# rank data by age
+boys_age_ranked_df <-
+  boys_height_df[order(boys_height_df$Age.group),]
+girls_age_ranked_df <-
+  girls_height_df[order(girls_height_df$Age.group),]
+
+# give some strings for rownames names
+boy_index2use = NA
+for (i in 1:nrow(boys_age_ranked_df)){
+  boy_index2use[i] <- paste0("boy_", i)
+}
+
+# give some strings for rownames names
+girl_index2use = NA
+for (i in 1:nrow(girls_age_ranked_df)){
+  girl_index2use[i] <- paste0("girl_", i)
+}
+
+boys_age <- boys_age_ranked_df$Age.group
+girls_age <- girls_age_ranked_df$Age.group
+```
+
+```{r plot height distributions}
+
+urban_height <- ggplot(height_df, 
+                   aes(x = Mean.Height..urban., 
+                       colour = Sex, 
+                       fill = Sex)) +
+                  geom_density(alpha = 0.5) + 
+                  labs(x = "Urban population height") + mytheme
+
+print(urban_height) 
+ggsave(file.path(plotpath, "urban_height.png"), dpi = 600)
+
+
+rural_height <- ggplot(height_df, 
+                   aes(x = Mean.Height..rural., 
+                       colour = Sex, 
+                       fill = Sex)) +
+                  geom_density(alpha = 0.5) + 
+                  labs(x = "Rural population height") + mytheme
+
+print(rural_height) 
+ggsave(file.path(plotpath, "rural_height.png"), dpi = 600)
+
+```
+
+```{r plot age against height}
+
+urban_height <- ggplot(height_df, 
+                   aes(x = Age.group,
+                       y = Mean.Height..urban., 
+                       colour = Sex, 
+                       fill = Sex)) +
+                      geom_point(alpha = 0.5) + 
+                      labs(x = "Age", 
+                           y = "Height", 
+                           title = "Urban population") + mytheme
+
+print(urban_height) 
+ggsave(file.path(plotpath, "urban_age_height.png"), dpi = 600)
+
+
+rural_height <- ggplot(height_df, 
+                   aes(x = Age.group,
+                      y = Mean.Height..rural., 
+                       colour = Sex, 
+                       fill = Sex)) +
+                      geom_point(alpha = 0.5) + 
+                      labs(x = "Age", 
+                           y = "Height", 
+                           title = "Rural population") + mytheme
+
+print(rural_height) 
+ggsave(file.path(plotpath, "rural_age_height.png"), dpi = 600)
+
+```
+
+
+```{r build similarity models}
+
+boy_models_list <- make_similarity_matrices(boys_age,
+                                            boy_index2use,
+                                            pubertal_ages,
+                                            file.path(resultpath, 'boys'),
+                                            save_out = TRUE)
+
+girl_models_list <- make_similarity_matrices(girls_age,
+                                            girl_index2use,
+                                            pubertal_ages,
+                                            file.path(resultpath, 'girls'),
+                                            save_out = TRUE)
+
+
+```
+
+```{r compute height similarity}
+
+boys_urban_similarity <- compute_single_variable_similarity(
+  boys_age_ranked_df$Mean.Height..urban.,
+  boy_index2use,
+  "boy_urban_height_similarity",
+  file.path(resultpath, 'boys'), 
+  TRUE
+)
+
+girls_urban_similarity <- compute_single_variable_similarity(
+  girls_age_ranked_df$Mean.Height..urban.,
+  girl_index2use,
+  "girl_urban_height_similarity",
+  file.path(resultpath, 'girls'), 
+  TRUE
+)
+
+boys_rural_similarity <- compute_single_variable_similarity(
+  boys_age_ranked_df$Mean.Height..rural.,
+  boy_index2use,
+  "boy_rural_height_similarity",
+  file.path(resultpath, 'boys'), 
+  TRUE
+)
+
+girls_rural_similarity <- compute_single_variable_similarity(
+  girls_age_ranked_df$Mean.Height..rural.,
+  girl_index2use,
+  "girl_rural_height_similarity",
+  file.path(resultpath, 'girls'), 
+  TRUE
+)
+
+boys_list <- list(boys_rural_similarity,
+                   boys_urban_similarity)
+names(boys_list) <- c("rural", "urban")
+
+girls_list <- list(girls_rural_similarity,
+                  girls_urban_similarity)
+names(girls_list) <- c("rural", "urban")
+
+```
+
+# Compared modelled to real data
+
+```{r}
+
+mantel_res_boys <- mantel_results_models(boy_models_list,
+                                          boys_list,
+                                          1000,
+                                          11)
+mantel_res_boys$model <- rownames(mantel_res_boys)
+
+mantel_res_boys %>% knitr::kable(format = "html") %>% kable_styling()
+```
+
+# Compare resulting R values
+
+```{r}
+
+mantel_res_boys <- mantel_res_boys[order(mantel_res_boys$r),]
+
+n1 <- nrow(boys_height_df)
+n2 <- nrow(boys_height_df)
+
+model_r_comparison_p <- data.frame()
+higher_model <- data.frame()
+comparison_name <- data.frame()
+
+for (i in 1:nrow(mantel_res_boys)){
+  for (j in 1:nrow(mantel_res_boys)){
+  
+  model_i <- mantel_res_boys[i, "model"]
+  model_j <- mantel_res_boys[j, "model"]
+  
+  comparison_name[i, j] <- paste0(model_i, "_", model_j)
+  
+  r_i <- mantel_res_boys[i, "r"]
+  r_j <- mantel_res_boys[j, "r"]
+  
+  result <- compare_correlations(r_i,
+                                 r_j,
+                                 alpha,
+                                 n1,
+                                 n2)
+  model_r_comparison_p[i, j] <- result$p_value
+  higher_model[i, j] <- ifelse(r_i > r_j, 
+                         "Yes", 
+                         "No")
+
+  }}
+
+
+mat_r <- as.matrix(higher_model)
+higher_r <- mat_r[lower.tri(mat_r)]
+
+mat_p <- as.matrix(model_r_comparison_p)
+p_values <- mat_p[lower.tri(mat_p)]
+
+mat_name <- as.matrix(comparison_name)
+comp_names <- mat_name[lower.tri(mat_name)]
+
+corr_p_values <- p.adjust(p_values, method = "fdr")
+met_significance <- ifelse(corr_p_values < alpha, "Yes", "No")
+
+# build symmetric matrix of corrected p-values for plotting
+corr_p_matrix <- matrix(0, nrow(mantel_res_boys),
+                        nrow(mantel_res_boys))
+
+
+corr_p_matrix[lower.tri(corr_p_matrix)] <- corr_p_values
+corr_p_matrix[upper.tri(corr_p_matrix)] <-
+  t(corr_p_matrix)[upper.tri(corr_p_matrix)]
+diag(corr_p_matrix) <- diag(mat_p)
+
+rownames(corr_p_matrix) <- mantel_res_boys$model
+colnames(corr_p_matrix) <- mantel_res_boys$model
+
+print(paste0("Is my matrix symmetric: ", isSymmetric(corr_p_matrix)))
+
+# create binary matrix of whether p < alpha
+binary_sig <- ifelse(corr_p_matrix < alpha, 0, 1)
+rownames(binary_sig) <- mantel_res_boys$model
+colnames(binary_sig) <- mantel_res_boys$model
+
+if (isSymmetric(corr_p_matrix)){
+  melted_mat <- melt(corr_p_matrix)
+  
+  plot_p <- ggplot(data = melted_mat, aes(x = Var1, 
+                                           y = Var2, 
+                                           fill = as.numeric(value))) +
+                  geom_tile() +
+                  scale_fill_gradient2(low = "lightblue", 
+                                       high = "blue", 
+                                       mid = "cornflowerblue", 
+                                       midpoint = 0.25, limit = c(0, 0.5),
+                                       space = "Lab", 
+                                       name="P-values") +
+                  theme_minimal() +
+                  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                                   size = 8, hjust = 1)) +
+                  labs(title = "P-values for each comparison",
+                       x = NULL,
+                       y = NULL) +
+                  coord_fixed()
+  print(plot_p)
+  ggsave(file.path(plotpath, "stats_plot_boys.png"), dpi = 600)
+}else{
+  print("Matrix is not symmetric, I can't plot it. Go back and check your matrix again!")
+}
+
+# print which comparisons had significantly higher mantel R's
+
+# take the last row
+boys_row <- binary_sig[nrow(binary_sig),]
+boys_row <- data.frame(boys_row)
+boys_high_names <- rownames(boys_row)[boys_row == 1]
+
+message <- paste("The comparisons with the highest R are, in order of least to highest: ",
+                 paste(boys_high_names, collapse = ", "))
+print(message)
+
+boys_comparisons <- data.frame("comparison" = comp_names,
+                              "was_r_higher" = higher_r,
+                              "raw_p" = p_values,
+                              "corr_p" = corr_p_values,
+                              "met_significance" = met_significance)
+
+boys_comparisons %>% 
+  knitr::kable(format = "html") %>% 
+  kable_styling()
+
+```
+
+# Compare modelled to real data
+
+```{r}
+
+mantel_res_girls <- mantel_results_models(girl_models_list,
+                                          girls_list,
+                                          1000,
+                                          11)
+
+mantel_res_girls$model <- rownames(mantel_res_girls)
+
+mantel_res_girls %>% knitr::kable(format = "html") %>% kable_styling()
+```
+
+# Compare resulting correlations
+
+```{r}
+
+mantel_res_girls <- mantel_res_girls[order(mantel_res_girls$r),]
+
+n1 <- nrow(girls_height_df)
+n2 <- nrow(girls_height_df)
+
+model_r_comparison_p <- data.frame()
+higher_model <- data.frame()
+comparison_name <- data.frame()
+
+for (i in 1:nrow(mantel_res_girls)){
+  for (j in 1:nrow(mantel_res_girls)){
+  
+  model_i <- mantel_res_girls[i, "model"]
+  model_j <- mantel_res_girls[j, "model"]
+  
+  comparison_name[i, j] <- paste0(model_i, "_", model_j)
+  
+  r_i <- mantel_res_girls[i, "r"]
+  r_j <- mantel_res_girls[j, "r"]
+  
+  result <- compare_correlations(r_i,
+                                 r_j,
+                                 alpha,
+                                 n1,
+                                 n2)
+  model_r_comparison_p[i, j] <- result$p_value
+  higher_model[i, j] <- ifelse(r_i > r_j, 
+                         "Yes", 
+                         "No")
+
+  }}
+
+
+mat_r <- as.matrix(higher_model)
+higher_r <- mat_r[lower.tri(mat_r)]
+
+mat_p <- as.matrix(model_r_comparison_p)
+p_values <- mat_p[lower.tri(mat_p)]
+
+mat_name <- as.matrix(comparison_name)
+comp_names <- mat_name[lower.tri(mat_name)]
+
+corr_p_values <- p.adjust(p_values, method = "fdr")
+met_significance <- ifelse(corr_p_values < alpha, "Yes", "No")
+
+# build symmetric matrix of corrected p-values for plotting
+corr_p_matrix <- matrix(0, nrow(mantel_res_girls),
+                        nrow(mantel_res_girls))
+
+
+corr_p_matrix[lower.tri(corr_p_matrix)] <- corr_p_values
+corr_p_matrix[upper.tri(corr_p_matrix)] <-
+  t(corr_p_matrix)[upper.tri(corr_p_matrix)]
+diag(corr_p_matrix) <- diag(mat_p)
+
+rownames(corr_p_matrix) <- mantel_res_girls$model
+colnames(corr_p_matrix) <- mantel_res_girls$model
+
+print(paste0("Is my matrix symmetric: ", isSymmetric(corr_p_matrix)))
+
+# create binary matrix of whether p < alpha
+binary_sig <- ifelse(corr_p_matrix < alpha, 0, 1)
+rownames(binary_sig) <- mantel_res_girls$model
+colnames(binary_sig) <- mantel_res_girls$model
+
+if (isSymmetric(corr_p_matrix)){
+  melted_mat <- melt(corr_p_matrix)
+  
+  plot_p <- ggplot(data = melted_mat, aes(x = Var1, 
+                                           y = Var2, 
+                                           fill = as.numeric(value))) +
+                  geom_tile() +
+                  scale_fill_gradient2(low = "lightblue", 
+                                       high = "blue", 
+                                       mid = "cornflowerblue", 
+                                       midpoint = 0.25, limit = c(0, 0.5),
+                                       space = "Lab", 
+                                       name="P-values") +
+                  theme_minimal() +
+                  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                                   size = 8, hjust = 1)) +
+                  labs(title = "P-values for each comparison",
+                       x = NULL,
+                       y = NULL) +
+                  coord_fixed()
+  print(plot_p)
+  ggsave(file.path(plotpath, "stats_plot_girls.png"), dpi = 600)
+}else{
+  print("Matrix is not symmetric, I can't plot it. Go back and check your matrix again!")
+}
+
+# print which comparisons had significantly higher mantel R's
+
+# take the last row
+girls_row <- binary_sig[nrow(binary_sig),]
+girls_row <- data.frame(girls_row)
+girls_high_names <- rownames(girls_row)[girls_row == 1]
+
+message <- paste("The comparisons with the highest R are, in order of least to highest: ",
+                 paste(girls_high_names, collapse = ", "))
+print(message)
+
+girls_comparisons <- data.frame("comparison" = comp_names,
+                              "was_r_higher" = higher_r,
+                              "raw_p" = p_values,
+                              "corr_p" = corr_p_values,
+                              "met_significance" = met_significance)
+
+girls_comparisons %>% 
+  knitr::kable(format = "html") %>% 
+  kable_styling()
+
+
+```
+
+```{python plot boys, message = FALSE, warning = FALSE}
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import glob
+import os
+
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure
+
+path = "/Users/scrockford/Library/CloudStorage/OneDrive-FondazioneIstitutoItalianoTecnologia/punctuated_similarity_test/results/boys/*.csv"
+
+cmap = 'mako'
+
+for fname in glob.glob(path):
+
+  data2plot = pd.read_csv(fname)
+  plotname = os.path.basename(fname)
+  plotname = plotname.replace(".csv", "")
+
+  plt.figure()
+  plt.title(plotname, fontsize = 20)
+  sns.heatmap(data2plot,
+              cmap = cmap,
+              square=True,
+              cbar=True,
+              xticklabels=False,
+              yticklabels=False)
+
+  plt.show()
+```
+
+```{python plot girls, message = FALSE, warning = FALSE}
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import glob
+import os
+
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure
+
+path = "/Users/scrockford/Library/CloudStorage/OneDrive-FondazioneIstitutoItalianoTecnologia/punctuated_similarity_test/results/girls/*.csv"
+
+cmap = 'mako'
+
+for fname in glob.glob(path):
+
+  data2plot = pd.read_csv(fname)
+  plotname = os.path.basename(fname)
+  plotname = plotname.replace(".csv", "")
+
+  plt.figure()
+  plt.title(plotname, fontsize =20)
+  sns.heatmap(data2plot,
+              cmap = cmap,
+              square=True,
+              cbar=True,
+              xticklabels=False,
+              yticklabels=False)
+
+  plt.show()
+```
+
