@@ -296,7 +296,7 @@ alpha <- 0.05
 #
 # FTSE: UK (FTSE 1000)
 # GSPC: USA (S&P 500)
-# DAX: Germany (DAX) 
+# GDAXI: Germany (GDAXI) 
 # FTSEMIB: Italy
 # FCHI: France
 # AXJO: Australia
@@ -304,7 +304,7 @@ alpha <- 0.05
 
 # REF: https://www.sciencedirect.com/science/article/pii/S2405844024012337
 
-ticker_list <- c("^FTSE", "^GSPC", "DAX", "FTSEMIB.MI", "^FCHI", "^AXJO", "^HSI")
+ticker_list <- c("^FTSE", "^GSPC", "^GDAXI", "FTSEMIB.MI", "^FCHI", "^AXJO", "^HSI")
 
 # Covid lockdown dates
 #
@@ -397,13 +397,13 @@ for (ticker in ticker_list){
 
 ```
 
-```{r plot closing price data}
+```{r plot closing price data, message=FALSE, warning=FALSE}
 
 # NOT IN A LOOP SO I CAN SEE TICKER ON GRAPHS
 # REF: https://stat-wizards.github.io/Forcasting-A-Time-Series-Stock-Market-Data/
 print(chartSeries(FTSE, TA = NULL))
 print(chartSeries(GSPC, TA = NULL))
-print(chartSeries(DAX, TA = NULL))
+print(chartSeries(GDAXI, TA = NULL))
 print(chartSeries(FTSEMIB.MI, TA = NULL))
 print(chartSeries(FCHI, TA = NULL))
 print(chartSeries(AXJO, TA = NULL))
@@ -411,6 +411,50 @@ print(chartSeries(HSI, TA = NULL))
 
 ```
 
+```{r save out charts}
+
+png(file.path(plotpath, "FTSE_stock.png"), width = 800, height = 600)
+chartSeries(FTSE, TA = NULL)
+addTA(Cl(FTSE), on = 1, col = "blue", lwd = 2)
+addTA(Op(FTSE), on = 1, col = "red", lwd = 2)
+dev.off()
+
+png(file.path(plotpath, "GSPC_stock.png"), width = 800, height = 600)
+chartSeries(GSPC, TA = NULL)
+addTA(Cl(GSPC), on = 1, col = "blue", lwd = 2)
+addTA(Op(GSPC), on = 1, col = "red", lwd = 2)
+dev.off()
+
+png(file.path(plotpath, "GDAXI_stock.png"), width = 800, height = 600)
+chartSeries(GDAXI, TA = NULL)
+addTA(Cl(GDAXI), on = 1, col = "blue", lwd = 2)
+addTA(Op(GDAXI), on = 1, col = "red", lwd = 2)
+dev.off()
+
+png(file.path(plotpath, "FTSEMIB_stock.png"), width = 800, height = 600)
+chartSeries(FTSEMIB.MI, TA = NULL)
+addTA(Cl(FTSEMIB.MI), on = 1, col = "blue", lwd = 2)
+addTA(Op(FTSEMIB.MI), on = 1, col = "red", lwd = 2)
+dev.off()
+
+png(file.path(plotpath, "FCHI_stock.png"), width = 800, height = 600)
+chartSeries(FCHI, TA = NULL)
+addTA(Cl(FCHI), on = 1, col = "blue", lwd = 2)
+addTA(Op(FCHI), on = 1, col = "red", lwd = 2)
+dev.off()
+
+png(file.path(plotpath, "AXJO_stock.png"), width = 800, height = 600)
+chartSeries(AXJO, TA = NULL)
+addTA(Cl(AXJO), on = 1, col = "blue", lwd = 2)
+addTA(Op(AXJO), on = 1, col = "red", lwd = 2)
+dev.off()
+
+png(file.path(plotpath, "HSI_stock.png"), width = 800, height = 600)
+chartSeries(HSI, TA = NULL)
+addTA(Cl(HSI), on = 1, col = "blue", lwd = 2)
+addTA(Op(HSI), on = 1, col = "red", lwd = 2)
+dev.off()
+```
 
 ```{r build similarity models}
 
@@ -428,11 +472,11 @@ GSPC_models_list <- make_similarity_matrices(dates2use[["GSPC_dates"]],
                                             file.path(resultpath, 'GSPC'),
                                             save_out = TRUE)
 
-DAX_models_list <- make_similarity_matrices(dates2use[["DAX_dates"]],
-                                            indices2use[["DAX_index"]],
-                                            vals2use[["DAX_center"]],
+GDAXI_models_list <- make_similarity_matrices(dates2use[["GDAXI_dates"]],
+                                            indices2use[["GDAXI_index"]],
+                                            vals2use[["GDAXI_center"]],
                                             center_value_name_list,
-                                            file.path(resultpath, 'DAX'),
+                                            file.path(resultpath, 'GDAXI'),
                                             save_out = TRUE)
 
 FTSEMIB.MI_models_list <- make_similarity_matrices(dates2use[["FTSEMIB.MI_dates"]],
@@ -485,11 +529,11 @@ GSPC_open_similarity <- compute_single_variable_similarity(
   TRUE
 )
 
-DAX_open_similarity <- compute_single_variable_similarity(
-  DAX_df$DAX.Open,
-  indices2use[["DAX_index"]],
-  "DAX_open_similarity",
-  file.path(resultpath, 'DAX'), 
+GDAXI_open_similarity <- compute_single_variable_similarity(
+  GDAXI_df$GDAXI.Open,
+  indices2use[["GDAXI_index"]],
+  "GDAXI_open_similarity",
+  file.path(resultpath, 'GDAXI'), 
   TRUE
 )
 
@@ -543,11 +587,11 @@ GSPC_close_similarity <- compute_single_variable_similarity(
   TRUE
 )
 
-DAX_close_similarity <- compute_single_variable_similarity(
-  DAX_df$DAX.Close,
-  indices2use[["DAX_index"]],
-  "DAX_close_similarity",
-  file.path(resultpath, 'DAX'), 
+GDAXI_close_similarity <- compute_single_variable_similarity(
+  GDAXI_df$GDAXI.Close,
+  indices2use[["GDAXI_index"]],
+  "GDAXI_close_similarity",
+  file.path(resultpath, 'GDAXI'), 
   TRUE
 )
 
@@ -591,9 +635,9 @@ GSPC_list <- list(GSPC_open_similarity,
                    GSPC_close_similarity)
 names(GSPC_list) <- c("open", "close")
 
-DAX_list <- list(DAX_open_similarity,
-                   DAX_close_similarity)
-names(DAX_list) <- c("open", "close")
+GDAXI_list <- list(GDAXI_open_similarity,
+                   GDAXI_close_similarity)
+names(GDAXI_list) <- c("open", "close")
 
 FTSEMIB.MI_list <- list(FTSEMIB.MI_open_similarity,
                    FTSEMIB.MI_close_similarity)
@@ -881,38 +925,38 @@ GSPC_comparisons %>%
 
 ```{r}
 
-mantel_res_DAX <- mantel_results_models(DAX_models_list,
-                                          DAX_list,
+mantel_res_GDAXI <- mantel_results_models(GDAXI_models_list,
+                                          GDAXI_list,
                                           nperm,
                                           n_behave_models)
 
-mantel_res_DAX$model <- rownames(mantel_res_DAX)
+mantel_res_GDAXI$model <- rownames(mantel_res_GDAXI)
 # order by increasing R
-mantel_res_DAX <- mantel_res_DAX[order(mantel_res_DAX$r),]
+mantel_res_GDAXI <- mantel_res_GDAXI[order(mantel_res_GDAXI$r),]
 
-mantel_res_DAX %>% knitr::kable(format = "html") %>% kable_styling()
+mantel_res_GDAXI %>% knitr::kable(format = "html") %>% kable_styling()
 ```
 
 # Compare resulting correlations
 
 ```{r}
-n1 <- nrow(DAX_df)
-n2 <- nrow(DAX_df)
+n1 <- nrow(GDAXI_df)
+n2 <- nrow(GDAXI_df)
 
 model_r_comparison_p <- data.frame()
 higher_model <- data.frame()
 comparison_name <- data.frame()
 
-for (i in 1:nrow(mantel_res_DAX)){
-  for (j in 1:nrow(mantel_res_DAX)){
+for (i in 1:nrow(mantel_res_GDAXI)){
+  for (j in 1:nrow(mantel_res_GDAXI)){
   
-  model_i <- mantel_res_DAX[i, "model"]
-  model_j <- mantel_res_DAX[j, "model"]
+  model_i <- mantel_res_GDAXI[i, "model"]
+  model_j <- mantel_res_GDAXI[j, "model"]
   
   comparison_name[i, j] <- paste0(model_i, "_", model_j)
   
-  r_i <- mantel_res_DAX[i, "r"]
-  r_j <- mantel_res_DAX[j, "r"]
+  r_i <- mantel_res_GDAXI[i, "r"]
+  r_j <- mantel_res_GDAXI[j, "r"]
   
   result <- compare_correlations(r_i,
                                  r_j,
@@ -940,8 +984,8 @@ corr_p_values <- p.adjust(p_values, method = "fdr")
 met_significance <- ifelse(corr_p_values < alpha, "Yes", "No")
 
 # build symmetric matrix of corrected p-values for plotting
-corr_p_matrix <- matrix(0, nrow(mantel_res_DAX),
-                        nrow(mantel_res_DAX))
+corr_p_matrix <- matrix(0, nrow(mantel_res_GDAXI),
+                        nrow(mantel_res_GDAXI))
 
 
 corr_p_matrix[lower.tri(corr_p_matrix)] <- corr_p_values
@@ -949,15 +993,15 @@ corr_p_matrix[upper.tri(corr_p_matrix)] <-
   t(corr_p_matrix)[upper.tri(corr_p_matrix)]
 diag(corr_p_matrix) <- diag(mat_p)
 
-rownames(corr_p_matrix) <- mantel_res_DAX$model
-colnames(corr_p_matrix) <- mantel_res_DAX$model
+rownames(corr_p_matrix) <- mantel_res_GDAXI$model
+colnames(corr_p_matrix) <- mantel_res_GDAXI$model
 
 print(paste0("Is my matrix symmetric: ", isSymmetric(corr_p_matrix)))
 
 # create binary matrix of whether p < alpha
 binary_sig <- ifelse(corr_p_matrix < alpha, 0, 1)
-rownames(binary_sig) <- mantel_res_DAX$model
-colnames(binary_sig) <- mantel_res_DAX$model
+rownames(binary_sig) <- mantel_res_GDAXI$model
+colnames(binary_sig) <- mantel_res_GDAXI$model
 
 if (isSymmetric(corr_p_matrix)){
   melted_mat <- melt(corr_p_matrix)
@@ -980,7 +1024,7 @@ if (isSymmetric(corr_p_matrix)){
                        y = NULL) +
                   coord_fixed()
   print(plot_p)
-  ggsave(file.path(plotpath, "stats_plot_DAX.png"), dpi = 600)
+  ggsave(file.path(plotpath, "stats_plot_GDAXI.png"), dpi = 600)
 }else{
   print("Matrix is not symmetric, I can't plot it. Go back and check your matrix again!")
 }
@@ -988,21 +1032,21 @@ if (isSymmetric(corr_p_matrix)){
 # print which comparisons had significantly higher mantel R's
 
 # take the last row
-DAX_row <- binary_sig[nrow(binary_sig),]
-DAX_row <- data.frame(DAX_row)
-DAX_high_names <- rownames(DAX_row)[DAX_row == 1]
+GDAXI_row <- binary_sig[nrow(binary_sig),]
+GDAXI_row <- data.frame(GDAXI_row)
+GDAXI_high_names <- rownames(GDAXI_row)[GDAXI_row == 1]
 
 message <- paste("The comparisons with the highest R are, in order of least to highest: ",
-                 paste(DAX_high_names, collapse = ", "))
+                 paste(GDAXI_high_names, collapse = ", "))
 print(message)
 
-DAX_comparisons <- data.frame("comparison" = comp_names,
+GDAXI_comparisons <- data.frame("comparison" = comp_names,
                               "was_r_higher" = higher_r,
                               "raw_p" = p_values,
                               "corr_p" = corr_p_values,
                               "met_significance" = met_significance)
 
-DAX_comparisons %>% 
+GDAXI_comparisons %>% 
   knitr::kable(format = "html") %>% 
   kable_styling()
 
@@ -1596,7 +1640,7 @@ for fname in glob.glob(path):
   plt.show()
 ```
 
-```{python plot DAX, message = FALSE, warning = FALSE}
+```{python plot GDAXI, message = FALSE, warning = FALSE}
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -1606,7 +1650,7 @@ import os
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import figure
 
-path = "/Users/scrockford/Library/CloudStorage/OneDrive-FondazioneIstitutoItalianoTecnologia/punctuated_similarity_proof/results/DAX/*.csv"
+path = "/Users/scrockford/Library/CloudStorage/OneDrive-FondazioneIstitutoItalianoTecnologia/punctuated_similarity_proof/results/GDAXI/*.csv"
 
 cmap = 'mako'
 
