@@ -1,0 +1,1760 @@
+---
+title: "stock_price_similarity_test"
+author: "Sarah K. Crockford"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r some functions}
+
+# Function to compute divergence similarity
+divergence <- function(behave_data){
+
+  divergence_df <- data.frame()
+
+  sample_max <- max(behave_data)
+
+  for (i in 1:length(behave_data)){
+    for (j in 1:length(behave_data)){
+
+      pair_vec <- c(behave_data[[i]], behave_data[[j]])
+      output_conv <- mean(pair_vec)
+      divergence_df[i, j] <- (sample_max - output_conv)
+
+    }}
+
+  return(divergence_df)
+}
+
+make_similarity_matrices <- function(behave_vec,
+                                     index,
+                                     center_value_list,
+                                     center_value_name_list,
+                                     resultpath,
+                                     save_out){
+
+  dataframes2loopthrough <- list()
+
+  behave_nn <- nearest_neighbours(behave_vec) # absolute difference
+  nn_name <- "behave_nn"
+  behave_conv <- convergence(behave_vec) # minimum pair
+  conv_name <- "behave_conv"
+  behave_div <- divergence(behave_vec) # max(sample) - minimum pair
+  div_name <- "behave_div"
+
+  df_names_finn <- c(nn_name, conv_name, div_name)
+
+  df_names_behave <- c()
+  df_names_punctuated <- c()
+  
+  for (i in 1:length(center_value_list)){
+    behave_bow <- bow_tie(behave_vec, center_value_list[i]) # see function
+    behave_punct <- punctuated(behave_vec, center_value_list[i]) # see function
+
+    df_name <- paste0('punctuacted_', center_value_name_list[i])
+    df_names_behave[i] <- df_name
+    
+    df_name_punct <- paste0('punctuated_nn_', center_value_name_list[i])
+    df_names_punctuated[i] <- df_name_punct
+
+    assign(df_name, behave_bow)
+    assign(df_name_punct, behave_punct)
+  }
+
+  df_names <- c(df_names_finn, df_names_behave, df_names_punctuated)
+
+  dataframes2loopthrough <- do.call("list", mget(df_names))
+
+  for (df in 1:length(dataframes2loopthrough)){
+
+    df2use <- dataframes2loopthrough[[df]]
+
+    dfname <- names(dataframes2loopthrough)
+
+    final_df <- scale_matrix(df2use)
+
+    # replace diagonal values with 1
+    diag(final_df) <- round(1, digits = 0)
+    rownames(final_df) <- index
+
+    assign(dfname[df], final_df)
+
+    saveoutfilepath <- file.path(resultpath,
+                                 paste0(dfname[df], ".csv"))
+
+    if(save_out == TRUE){
+      write.csv(final_df, saveoutfilepath, row.names=FALSE)}
+
+  }
+
+  final_dataframes2loopthrough <- do.call("list", mget(df_names))
+  
+  return(final_dataframes2loopthrough)
+
+} # end function run behave model similarity
+
+
+# compute similarity on single value output
+
+compute_single_variable_similarity <- function(single_v_data, 
+                                               subids,
+                                               name2use,
+                                               resultpath,
+                                               save_out){
+  
+  matrix_similarity = data.frame()
+  
+  for (i in 1:length(single_v_data)){
+    for (j in 1:length(single_v_data)){
+      
+      data_i = single_v_data[[i]]
+      data_j = single_v_data[[j]]
+      
+      abs_diff = abs(data_i - data_j)
+      
+      matrix_similarity[i, j] = abs_diff
+      
+    }}
+      
+  matrix_scaled = 1 - scale_matrix(matrix_similarity)
+  
+  rownames(matrix_scaled) = subids
+  colnames(matrix_scaled) = subids
+  
+  saveoutfilename <- paste0(name2use, ".csv")
+  saveoutfilepath <- file.path(resultpath, 
+                                saveoutfilename)
+  
+  if (save_out == TRUE){
+    write.csv(matrix_scaled, saveoutfilepath, row.names=FALSE)}
+  
+  return(as.matrix(matrix_scaled))
+}
+
+mantel_results_models <- function(x, y, nperm, n_models){
+  
+  # function takes two separate lists of dataframes as arguments
+  # where x = list of data frames that model behavioral similarity (4 models)
+  # and y = list of data frames that model dependent variable similarity
+  # nperm is the n of permutations you want to run (i.e. 1000)
+  # n_models is the number of behavioral models you are using FIX ME
+  
+  # using package vegan for the mantel() function, with spearman method*
+  # *because distribution of similarity is not parametric 
+  # cit. https://jkzorz.github.io/2019/07/08/mantel-test.html
+  
+  # NB: switched to the vegan package, because the metan one was defaulting into spearman and there was no way to edit that (we need a non-parametric test)
+  
+  n_comparisons = length(y)
+
+  len_final_df = n_models*n_comparisons
+
+  model_res_r <- data.frame()
+  model_res_p <- data.frame()
+  rownames_df <- data.frame()
+
+  modelname = names(x)
+  comparisonname = names(y)
+
+  for (i in 1:length(x)){
+    for (j in 1:length(y)){
+
+        result_name <- paste0(modelname[i], comparisonname[j])
+
+        model2use = x[[i]]
+        data2use = y[[j]]
+
+        model_out = mantel(model2use,
+                           data2use,
+                           method = "spearman",
+                           permutations = nperm,
+                           na.rm = TRUE)
+
+        model_res_r <- rbind(model_res_r, 
+                             model_out$statistic) # r-value
+        model_res_p <- rbind(model_res_p, 
+                             model_out$signif) # p-value
+
+        rownames_df <- rbind(rownames_df, result_name)
+    }}
+
+  colnames(model_res_r) <- "r"
+  colnames(model_res_p) <- "p_value"
+
+  model_res <- cbind(model_res_p, model_res_r)
+  rownames(model_res) <- rownames_df[[1]]
+
+  model_res$p_value_adjusted <- p.adjust(model_res$p_value,
+                                         method = "fdr")
+
+  return(model_res)
+
+} # end function mantel_results_models
+
+
+compare_correlations <- function(r1_value,
+                                 r2_value,
+                                 alpha_level,
+                                 n_1,
+                                 n_2){
+  
+  # NB: applies to BOTH Pearson or Spearman's
+  
+  # REFs
+  # https://blogs.sas.com/content/iml/2017/09/20/fishers-transformation-correlation.html
+  # https://www.medcalc.org/manual/comparison-of-correlation-coefficients.php
+  # Fisher (1925): http://krishikosh.egranth.ac.in/bitstream/1/2048218/1/0039_2689A.pdf
+  # p_value from z score: https://www.r-bloggers.com/2022/05/calculate-the-p-value-from-z-score-in-r/
+  
+  # as a test case I used the exact values in the Medcalc link
+  # and I got the same results 
+  
+  result_names <- c("r_values",
+                    "z_scores",
+                    "standard_error",
+                    "Fisher's z",
+                    "p_value",
+                    "significance")
+  result <- vector("list", length(result_names))
+  names(result) <- result_names
+  
+  # save the original r values
+  result[["r_values"]] <- c("r1" = r1_value, "r2" = r2_value)
+  
+  # calculate z scores for the two pearson r coefficients
+  z1_value <- (1/2)*log((1+r1_value)/(1-r1_value)) 
+  z2_value <- (1/2)*log((1+r2_value)/(1-r2_value)) 
+  result[["z_scores"]] <- c("z1" = z1_value, "z2" = z2_value)
+  
+  # calculate the standard error based on sample size
+  se_value1 <- (1/(n_1 - 3))
+  se_value2 <- (1/(n_2 - 3))
+  
+  standard_error <- sqrt(se_value1 + se_value2)
+  result[["standard_error"]] <- standard_error
+  
+  # compute Fisher's z
+  # NB: we need to take the absolute value because this 
+  # eliminates the effect of which correlation is 
+  # first and which is second
+  
+  z <- abs((z1_value - z2_value)/standard_error)
+  result[["Fisher's z"]] <- z
+  
+  # test significance of Fisher's z (rounded to 4 decimal places)
+  # need to see the lower.tail to FALSE as we are only 
+  # evaluating positive z scores 
+  p_value <- pnorm(z, lower.tail = FALSE)
+  p_value_formatted <- format(round(p_value, 4), nsmall = 4)
+  
+  significant <- ifelse(p_value > alpha_level, "No", "Yes")
+  
+  result[["p_value"]] <- p_value_formatted 
+  result[["significance"]] <- significant
+  
+  return(result)
+}
+
+```
+
+```{r setup}
+library(easypackages)
+
+libraries("here",
+          "ggplot2",
+          "tidyverse", 
+          "psych", 
+          "reticulate",
+          "graph4lg", 
+          "ade4", 
+          "vegan",
+          "similaritymodels",
+          "caret",
+          "tidyverse",
+          "robustbase",
+          "egg",
+          "reshape2",
+          "knitr",
+          "kableExtra",
+          "quantmod")
+
+
+codepath = here("code")
+resultpath = here("results")
+datapath = here("data")
+plotpath = here("plots")
+
+# set random seed
+set.seed(999)
+
+# choose alpha (hypothesis testing sig. threshold)
+alpha <- 0.05
+
+# create list of tickers from US, UK, and German stock markets
+# TICKER LIST AND RELATED COUNTRY
+#
+# FTSE: UK (FTSE 1000)
+# GSPC: USA (S&P 500)
+# DAX: Germany (DAX) 
+# FTSEMIB: Italy
+# FCHI: France
+# AXJO: Australia
+# HSI: Hong Kong
+
+# REF: https://www.sciencedirect.com/science/article/pii/S2405844024012337
+
+ticker_list <- c("^FTSE", "^GSPC", "DAX", "FTSEMIB.MI", "^FCHI", "^AXJO", "^HSI")
+
+# Covid lockdown dates
+#
+# UK LEGAL COVID MANDATE (23/03/2020): 
+# https://www.instituteforgovernment.org.uk/sites/default/files/timeline-lockdown-web.pdf
+# US BORDER CLOSER MANDATE (16/03/2020): https://www150.statcan.gc.ca/n1/pub/45-28-0001/2021001/article/00007-eng.htm
+# GERMAN LEGAL COVID MANDATE (25/03/202):https://www.deutsche-apotheker-zeitung.de/news/artikel/2020/03/25/bundestag-stellt-epidemische-lage-von-nationaler-tragweite-fest
+# ITALY COVID MANDATE (09/03/2020): https://en.wikipedia.org/wiki/COVID-19_lockdowns_in_Italy
+# FRANCE COVID MANDATE (17/03/2020): https://www.france24.com/en/france/20210317-in-pictures-a-look-back-one-year-after-france-went-into-lockdown
+# AUSTRALIA border closer (19/03/2020): https://www.timeout.com/melbourne/things-to-do/a-timeline-of-covid-19-in-australia-two-years-on
+# WHO DECLARES PANDEMIC (11/03/2020): https://pmc.ncbi.nlm.nih.gov/articles/PMC7569573/
+# CHINA declares SARS-CoV-2 sequence (12/01/2020): https://pmc.ncbi.nlm.nih.gov/articles/PMC7068164
+
+# KEY dates to use:
+#
+# China declaration (early Jan 2020) (adding a day as the real date, 12th, is Sunday)
+# WHO pandemic declaration (early March 2020)
+# USA close borders (mid-march 2020)
+
+lockdown_dates_strings <- c("2020-01-13", "2020-03-11", "2020-03-16")
+center_value_name_list <- c("china", "who", "usa")
+
+# n of age similarity models we will build
+n_behave_models = 9
+
+# number of permutations
+nperm = 1000
+
+# make plots pretty
+
+#https://stackoverflow.com/questions/6736378/how-do-i-change-the-background-color-of-a-plot-made-with-ggplot2
+mytheme <- list(
+  theme_classic()+
+    theme(panel.background = element_blank(),strip.background = element_rect(colour=NA, fill=NA),panel.border = element_rect(fill = NA, color = "black"),
+          legend.title = element_blank(),legend.position="bottom", strip.text = element_text(face="bold", size=9),
+          axis.text=element_text(face="bold"),axis.title = element_text(face="bold"),plot.title = element_text(face = "bold", hjust = 0.5,size=13))
+)
+
+```
+
+```{r read data, warning=FALSE, message=FALSE}
+
+# get data 
+# NB: the 1st of september 2019 was a sunday so starting on the 2nd
+
+dates2use <- list()
+indices2use <- list()
+vals2use <- list()
+
+for (ticker in ticker_list){
+  
+  ticker_clean <- gsub("\\^", "", ticker)
+  df_name <- paste0(ticker_clean, "_df")
+  getSymbols(ticker, src="yahoo", from="2019-09-02", to ="2020-09-02")
+  df2use <- data.frame(get(ticker_clean))
+  df2use <- df2use[complete.cases(df2use), ]
+  assign(df_name, df2use)
+  
+  # get change in time as distance in days from time 0 (02/09/2019)
+  dates_raw <- as.Date(gsub("-", "", rownames(df2use)), format = "%Y%m%d")
+  dates <- as.numeric(dates_raw - min(dates_raw))
+  
+  # save dates to list
+  dates_name <- paste0(ticker_clean, "_dates")
+  dates2use[[dates_name]] <- dates
+  
+  # get string dates as 'subject' ids (index column)
+  index2use <- rownames(df2use)
+  
+  # save index to list
+  index_name <- paste0(ticker_clean, "_index")
+  indices2use[[index_name]] <- index2use
+  
+  # get the corresponding indices for the pivotal dates we want to measure against
+  center_value <- c()
+  i = 1
+  for (date in lockdown_dates_strings){
+    get_date_index <- which(index2use == date)
+    center_value[i] <- dates[get_date_index]
+    i <- i + 1
+  }
+  
+  # store out the corresponding times (n days from time point 0)
+  center_name <- paste0(ticker_clean, "_center")
+  vals2use[[center_name]] <- center_value
+  
+  # check lengths of dfs (unless missing data should be of mostly equal length)
+  print(paste0("Number of dates in ", ticker_clean, ": ", nrow(df2use)))
+}
+
+```
+
+```{r plot closing price data}
+
+# NOT IN A LOOP SO I CAN SEE TICKER ON GRAPHS
+# REF: https://stat-wizards.github.io/Forcasting-A-Time-Series-Stock-Market-Data/
+print(chartSeries(FTSE, TA = NULL))
+print(chartSeries(GSPC, TA = NULL))
+print(chartSeries(DAX, TA = NULL))
+print(chartSeries(FTSEMIB.MI, TA = NULL))
+print(chartSeries(FCHI, TA = NULL))
+print(chartSeries(AXJO, TA = NULL))
+print(chartSeries(HSI, TA = NULL))
+
+```
+
+
+```{r build similarity models}
+
+FTSE_models_list <- make_similarity_matrices(dates2use[["FTSE_dates"]],
+                                            indices2use[["FTSE_index"]],
+                                            vals2use[["FTSE_center"]],
+                                            center_value_name_list,
+                                            file.path(resultpath, 'FTSE'),
+                                            save_out = TRUE)
+
+GSPC_models_list <- make_similarity_matrices(dates2use[["GSPC_dates"]],
+                                            indices2use[["GSPC_index"]],
+                                            vals2use[["GSPC_center"]],
+                                            center_value_name_list,
+                                            file.path(resultpath, 'GSPC'),
+                                            save_out = TRUE)
+
+DAX_models_list <- make_similarity_matrices(dates2use[["DAX_dates"]],
+                                            indices2use[["DAX_index"]],
+                                            vals2use[["DAX_center"]],
+                                            center_value_name_list,
+                                            file.path(resultpath, 'DAX'),
+                                            save_out = TRUE)
+
+FTSEMIB.MI_models_list <- make_similarity_matrices(dates2use[["FTSEMIB.MI_dates"]],
+                                            indices2use[["FTSEMIB.MI_index"]],
+                                            vals2use[["FTSEMIB.MI_center"]],
+                                            center_value_name_list,
+                                            file.path(resultpath, 'FTSEMIB'),
+                                            save_out = TRUE)
+
+FCHI_models_list <- make_similarity_matrices(dates2use[["FCHI_dates"]],
+                                            indices2use[["FCHI_index"]],
+                                            vals2use[["FCHI_center"]],
+                                            center_value_name_list,
+                                            file.path(resultpath, 'FCHI'),
+                                            save_out = TRUE)
+
+AXJO_models_list <- make_similarity_matrices(dates2use[["AXJO_dates"]],
+                                            indices2use[["AXJO_index"]],
+                                            vals2use[["AXJO_center"]],
+                                            center_value_name_list,
+                                            file.path(resultpath, 'AXJO'),
+                                            save_out = TRUE)
+
+HSI_models_list <- make_similarity_matrices(dates2use[["HSI_dates"]],
+                                            indices2use[["HSI_index"]],
+                                            vals2use[["HSI_center"]],
+                                            center_value_name_list,
+                                            file.path(resultpath, 'HSI'),
+                                            save_out = TRUE)
+
+```
+
+```{r compute price similarity}
+
+# OPENING PRICES
+
+FTSE_open_similarity <- compute_single_variable_similarity(
+  FTSE_df$FTSE.Open,
+  indices2use[["FTSE_index"]],
+  "FTSE_open_similarity",
+  file.path(resultpath, 'FTSE'), 
+  TRUE
+)
+
+GSPC_open_similarity <- compute_single_variable_similarity(
+  GSPC_df$GSPC.Open,
+  indices2use[["GSPC_index"]],
+  "GSPC_open_similarity",
+  file.path(resultpath, 'GSPC'), 
+  TRUE
+)
+
+DAX_open_similarity <- compute_single_variable_similarity(
+  DAX_df$DAX.Open,
+  indices2use[["DAX_index"]],
+  "DAX_open_similarity",
+  file.path(resultpath, 'DAX'), 
+  TRUE
+)
+
+FTSEMIB.MI_open_similarity <- compute_single_variable_similarity(
+  FTSEMIB.MI_df$FTSEMIB.MI.Open,
+  indices2use[["FTSEMIB.MI_index"]],
+  "FTSEMIB.MI_open_similarity",
+  file.path(resultpath, 'FTSEMIB'), 
+  TRUE
+)
+
+FCHI_open_similarity <- compute_single_variable_similarity(
+  FCHI_df$FCHI.Open,
+  indices2use[["FCHI_index"]],
+  "FCHI_open_similarity",
+  file.path(resultpath, 'FCHI'), 
+  TRUE
+)
+
+AXJO_open_similarity <- compute_single_variable_similarity(
+  AXJO_df$AXJO.Open,
+  indices2use[["AXJO_index"]],
+  "AXJO_open_similarity",
+  file.path(resultpath, 'AXJO'), 
+  TRUE
+)
+
+HSI_open_similarity <- compute_single_variable_similarity(
+  HSI_df$HSI.Open,
+  indices2use[["HSI_index"]],
+  "HSI_open_similarity",
+  file.path(resultpath, 'HSI'), 
+  TRUE
+)
+
+# CLOSING PRICES
+
+FTSE_close_similarity <- compute_single_variable_similarity(
+  FTSE_df$FTSE.Close,
+  indices2use[["FTSE_index"]],
+  "FTSE_close_similarity",
+  file.path(resultpath, 'FTSE'), 
+  TRUE
+)
+
+GSPC_close_similarity <- compute_single_variable_similarity(
+  GSPC_df$GSPC.Close,
+  indices2use[["GSPC_index"]],
+  "GSPC_close_similarity",
+  file.path(resultpath, 'GSPC'), 
+  TRUE
+)
+
+DAX_close_similarity <- compute_single_variable_similarity(
+  DAX_df$DAX.Close,
+  indices2use[["DAX_index"]],
+  "DAX_close_similarity",
+  file.path(resultpath, 'DAX'), 
+  TRUE
+)
+
+FTSEMIB.MI_close_similarity <- compute_single_variable_similarity(
+  FTSEMIB.MI_df$FTSEMIB.MI.Close,
+  indices2use[["FTSEMIB.MI_index"]],
+  "FTSEMIB.MI_close_similarity",
+  file.path(resultpath, 'FTSEMIB'), 
+  TRUE
+)
+
+FCHI_close_similarity <- compute_single_variable_similarity(
+  FCHI_df$FCHI.Close,
+  indices2use[["FCHI_index"]],
+  "FCHI_close_similarity",
+  file.path(resultpath, 'FCHI'), 
+  TRUE
+)
+
+AXJO_close_similarity <- compute_single_variable_similarity(
+  AXJO_df$AXJO.Close,
+  indices2use[["AXJO_index"]],
+  "AXJO_close_similarity",
+  file.path(resultpath, 'AXJO'), 
+  TRUE
+)
+
+HSI_close_similarity <- compute_single_variable_similarity(
+  HSI_df$HSI.Close,
+  indices2use[["HSI_index"]],
+  "HSI_close_similarity",
+  file.path(resultpath, 'HSI'), 
+  TRUE
+)
+
+FTSE_list <- list(FTSE_open_similarity,
+                   FTSE_close_similarity)
+names(FTSE_list) <- c("open", "close")
+
+GSPC_list <- list(GSPC_open_similarity,
+                   GSPC_close_similarity)
+names(GSPC_list) <- c("open", "close")
+
+DAX_list <- list(DAX_open_similarity,
+                   DAX_close_similarity)
+names(DAX_list) <- c("open", "close")
+
+FTSEMIB.MI_list <- list(FTSEMIB.MI_open_similarity,
+                   FTSEMIB.MI_close_similarity)
+names(FTSEMIB.MI_list) <- c("open", "close")
+
+FCHI_list <- list(FCHI_open_similarity,
+                   FCHI_close_similarity)
+names(FCHI_list) <- c("open", "close")
+
+AXJO_list <- list(AXJO_open_similarity,
+                   AXJO_close_similarity)
+names(AXJO_list) <- c("open", "close")
+
+HSI_list <- list(HSI_open_similarity,
+                   HSI_close_similarity)
+names(HSI_list) <- c("open", "close")
+
+```
+
+# Compared modelled to real data
+
+```{r}
+
+mantel_res_FTSE <- mantel_results_models(FTSE_models_list,
+                                          FTSE_list,
+                                          nperm,
+                                          n_behave_models)
+mantel_res_FTSE$model <- rownames(mantel_res_FTSE)
+
+# order by increasing R
+mantel_res_FTSE <- mantel_res_FTSE[order(mantel_res_FTSE$r),]
+
+mantel_res_FTSE %>% knitr::kable(format = "html") %>% kable_styling()
+```
+
+# Compare resulting R values
+
+```{r}
+
+n1 <- nrow(FTSE_df)
+n2 <- nrow(FTSE_df)
+
+model_r_comparison_p <- data.frame()
+higher_model <- data.frame()
+comparison_name <- data.frame()
+
+for (i in 1:nrow(mantel_res_FTSE)){
+  for (j in 1:nrow(mantel_res_FTSE)){
+  
+  model_i <- mantel_res_FTSE[i, "model"]
+  model_j <- mantel_res_FTSE[j, "model"]
+  
+  comparison_name[i, j] <- paste0(model_i, "_", model_j)
+  
+  r_i <- mantel_res_FTSE[i, "r"]
+  r_j <- mantel_res_FTSE[j, "r"]
+  
+  result <- compare_correlations(r_i,
+                                 r_j,
+                                 alpha,
+                                 n1,
+                                 n2)
+  model_r_comparison_p[i, j] <- result$p_value
+  higher_model[i, j] <- ifelse(r_i > r_j, 
+                         "Yes", 
+                         "No")
+
+  }}
+
+
+mat_r <- as.matrix(higher_model)
+higher_r <- mat_r[lower.tri(mat_r)]
+
+mat_p <- as.matrix(model_r_comparison_p)
+p_values <- mat_p[lower.tri(mat_p)]
+
+mat_name <- as.matrix(comparison_name)
+comp_names <- mat_name[lower.tri(mat_name)]
+
+corr_p_values <- p.adjust(p_values, method = "fdr")
+met_significance <- ifelse(corr_p_values < alpha, "Yes", "No")
+
+# build symmetric matrix of corrected p-values for plotting
+corr_p_matrix <- matrix(0, nrow(mantel_res_FTSE),
+                        nrow(mantel_res_FTSE))
+
+
+corr_p_matrix[lower.tri(corr_p_matrix)] <- corr_p_values
+corr_p_matrix[upper.tri(corr_p_matrix)] <-
+  t(corr_p_matrix)[upper.tri(corr_p_matrix)]
+diag(corr_p_matrix) <- diag(mat_p)
+
+rownames(corr_p_matrix) <- mantel_res_FTSE$model
+colnames(corr_p_matrix) <- mantel_res_FTSE$model
+
+print(paste0("Is my matrix symmetric: ", isSymmetric(corr_p_matrix)))
+
+# create binary matrix of whether p < alpha
+binary_sig <- ifelse(corr_p_matrix < alpha, 0, 1)
+rownames(binary_sig) <- mantel_res_FTSE$model
+colnames(binary_sig) <- mantel_res_FTSE$model
+
+if (isSymmetric(corr_p_matrix)){
+  melted_mat <- melt(corr_p_matrix)
+  
+  plot_p <- ggplot(data = melted_mat, aes(x = Var1, 
+                                           y = Var2, 
+                                           fill = as.numeric(value))) +
+                  geom_tile() +
+                  scale_fill_gradient2(low = "lightblue", 
+                                       high = "blue", 
+                                       mid = "cornflowerblue", 
+                                       midpoint = 0.25, limit = c(0, 0.5),
+                                       space = "Lab", 
+                                       name="P-values") +
+                  theme_minimal() +
+                  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                                   size = 8, hjust = 1)) +
+                  labs(title = "P-values for each comparison",
+                       x = NULL,
+                       y = NULL) +
+                  coord_fixed()
+  print(plot_p)
+  ggsave(file.path(plotpath, "stats_plot_FTSE.png"), dpi = 600)
+}else{
+  print("Matrix is not symmetric, I can't plot it. Go back and check your matrix again!")
+}
+
+# print which comparisons had significantly higher mantel R's
+
+# take the last row
+FTSE_row <- binary_sig[nrow(binary_sig),]
+FTSE_row <- data.frame(FTSE_row)
+FTSE_high_names <- rownames(FTSE_row)[FTSE_row == 1]
+
+message <- paste("The comparisons with the highest R are, in order of least to highest: ",
+                 paste(FTSE_high_names, collapse = ", "))
+print(message)
+
+FTSE_comparisons <- data.frame("comparison" = comp_names,
+                              "was_r_higher" = higher_r,
+                              "raw_p" = p_values,
+                              "corr_p" = corr_p_values,
+                              "met_significance" = met_significance)
+
+FTSE_comparisons %>% 
+  knitr::kable(format = "html") %>% 
+  kable_styling()
+
+```
+
+# Compare modelled to real data
+
+```{r}
+
+mantel_res_GSPC <- mantel_results_models(GSPC_models_list,
+                                          GSPC_list,
+                                          nperm,
+                                          n_behave_models)
+
+mantel_res_GSPC$model <- rownames(mantel_res_GSPC)
+#order by increasing R
+mantel_res_GSPC <- mantel_res_GSPC[order(mantel_res_GSPC$r),]
+
+mantel_res_GSPC %>% knitr::kable(format = "html") %>% kable_styling()
+```
+
+# Compare resulting correlations
+
+```{r}
+
+n1 <- nrow(GSPC_df)
+n2 <- nrow(GSPC_df)
+
+model_r_comparison_p <- data.frame()
+higher_model <- data.frame()
+comparison_name <- data.frame()
+
+for (i in 1:nrow(mantel_res_GSPC)){
+  for (j in 1:nrow(mantel_res_GSPC)){
+  
+  model_i <- mantel_res_GSPC[i, "model"]
+  model_j <- mantel_res_GSPC[j, "model"]
+  
+  comparison_name[i, j] <- paste0(model_i, "_", model_j)
+  
+  r_i <- mantel_res_GSPC[i, "r"]
+  r_j <- mantel_res_GSPC[j, "r"]
+  
+  result <- compare_correlations(r_i,
+                                 r_j,
+                                 alpha,
+                                 n1,
+                                 n2)
+  model_r_comparison_p[i, j] <- result$p_value
+  higher_model[i, j] <- ifelse(r_i > r_j, 
+                         "Yes", 
+                         "No")
+
+  }}
+
+
+mat_r <- as.matrix(higher_model)
+higher_r <- mat_r[lower.tri(mat_r)]
+
+mat_p <- as.matrix(model_r_comparison_p)
+p_values <- mat_p[lower.tri(mat_p)]
+
+mat_name <- as.matrix(comparison_name)
+comp_names <- mat_name[lower.tri(mat_name)]
+
+corr_p_values <- p.adjust(p_values, method = "fdr")
+met_significance <- ifelse(corr_p_values < alpha, "Yes", "No")
+
+# build symmetric matrix of corrected p-values for plotting
+corr_p_matrix <- matrix(0, nrow(mantel_res_GSPC),
+                        nrow(mantel_res_GSPC))
+
+
+corr_p_matrix[lower.tri(corr_p_matrix)] <- corr_p_values
+corr_p_matrix[upper.tri(corr_p_matrix)] <-
+  t(corr_p_matrix)[upper.tri(corr_p_matrix)]
+diag(corr_p_matrix) <- diag(mat_p)
+
+rownames(corr_p_matrix) <- mantel_res_GSPC$model
+colnames(corr_p_matrix) <- mantel_res_GSPC$model
+
+print(paste0("Is my matrix symmetric: ", isSymmetric(corr_p_matrix)))
+
+# create binary matrix of whether p < alpha
+binary_sig <- ifelse(corr_p_matrix < alpha, 0, 1)
+rownames(binary_sig) <- mantel_res_GSPC$model
+colnames(binary_sig) <- mantel_res_GSPC$model
+
+if (isSymmetric(corr_p_matrix)){
+  melted_mat <- melt(corr_p_matrix)
+  
+  plot_p <- ggplot(data = melted_mat, aes(x = Var1, 
+                                           y = Var2, 
+                                           fill = as.numeric(value))) +
+                  geom_tile() +
+                  scale_fill_gradient2(low = "lightblue", 
+                                       high = "blue", 
+                                       mid = "cornflowerblue", 
+                                       midpoint = 0.25, limit = c(0, 0.5),
+                                       space = "Lab", 
+                                       name="P-values") +
+                  theme_minimal() +
+                  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                                   size = 8, hjust = 1)) +
+                  labs(title = "P-values for each comparison",
+                       x = NULL,
+                       y = NULL) +
+                  coord_fixed()
+  print(plot_p)
+  ggsave(file.path(plotpath, "stats_plot_GSPC.png"), dpi = 600)
+}else{
+  print("Matrix is not symmetric, I can't plot it. Go back and check your matrix again!")
+}
+
+# print which comparisons had significantly higher mantel R's
+
+# take the last row
+GSPC_row <- binary_sig[nrow(binary_sig),]
+GSPC_row <- data.frame(GSPC_row)
+GSPC_high_names <- rownames(GSPC_row)[GSPC_row == 1]
+
+message <- paste("The comparisons with the highest R are, in order of least to highest: ",
+                 paste(GSPC_high_names, collapse = ", "))
+print(message)
+
+GSPC_comparisons <- data.frame("comparison" = comp_names,
+                              "was_r_higher" = higher_r,
+                              "raw_p" = p_values,
+                              "corr_p" = corr_p_values,
+                              "met_significance" = met_significance)
+
+GSPC_comparisons %>% 
+  knitr::kable(format = "html") %>% 
+  kable_styling()
+
+```
+
+# Compare modelled to real data
+
+```{r}
+
+mantel_res_DAX <- mantel_results_models(DAX_models_list,
+                                          DAX_list,
+                                          nperm,
+                                          n_behave_models)
+
+mantel_res_DAX$model <- rownames(mantel_res_DAX)
+# order by increasing R
+mantel_res_DAX <- mantel_res_DAX[order(mantel_res_DAX$r),]
+
+mantel_res_DAX %>% knitr::kable(format = "html") %>% kable_styling()
+```
+
+# Compare resulting correlations
+
+```{r}
+n1 <- nrow(DAX_df)
+n2 <- nrow(DAX_df)
+
+model_r_comparison_p <- data.frame()
+higher_model <- data.frame()
+comparison_name <- data.frame()
+
+for (i in 1:nrow(mantel_res_DAX)){
+  for (j in 1:nrow(mantel_res_DAX)){
+  
+  model_i <- mantel_res_DAX[i, "model"]
+  model_j <- mantel_res_DAX[j, "model"]
+  
+  comparison_name[i, j] <- paste0(model_i, "_", model_j)
+  
+  r_i <- mantel_res_DAX[i, "r"]
+  r_j <- mantel_res_DAX[j, "r"]
+  
+  result <- compare_correlations(r_i,
+                                 r_j,
+                                 alpha,
+                                 n1,
+                                 n2)
+  model_r_comparison_p[i, j] <- result$p_value
+  higher_model[i, j] <- ifelse(r_i > r_j, 
+                         "Yes", 
+                         "No")
+
+  }}
+
+
+mat_r <- as.matrix(higher_model)
+higher_r <- mat_r[lower.tri(mat_r)]
+
+mat_p <- as.matrix(model_r_comparison_p)
+p_values <- mat_p[lower.tri(mat_p)]
+
+mat_name <- as.matrix(comparison_name)
+comp_names <- mat_name[lower.tri(mat_name)]
+
+corr_p_values <- p.adjust(p_values, method = "fdr")
+met_significance <- ifelse(corr_p_values < alpha, "Yes", "No")
+
+# build symmetric matrix of corrected p-values for plotting
+corr_p_matrix <- matrix(0, nrow(mantel_res_DAX),
+                        nrow(mantel_res_DAX))
+
+
+corr_p_matrix[lower.tri(corr_p_matrix)] <- corr_p_values
+corr_p_matrix[upper.tri(corr_p_matrix)] <-
+  t(corr_p_matrix)[upper.tri(corr_p_matrix)]
+diag(corr_p_matrix) <- diag(mat_p)
+
+rownames(corr_p_matrix) <- mantel_res_DAX$model
+colnames(corr_p_matrix) <- mantel_res_DAX$model
+
+print(paste0("Is my matrix symmetric: ", isSymmetric(corr_p_matrix)))
+
+# create binary matrix of whether p < alpha
+binary_sig <- ifelse(corr_p_matrix < alpha, 0, 1)
+rownames(binary_sig) <- mantel_res_DAX$model
+colnames(binary_sig) <- mantel_res_DAX$model
+
+if (isSymmetric(corr_p_matrix)){
+  melted_mat <- melt(corr_p_matrix)
+  
+  plot_p <- ggplot(data = melted_mat, aes(x = Var1, 
+                                           y = Var2, 
+                                           fill = as.numeric(value))) +
+                  geom_tile() +
+                  scale_fill_gradient2(low = "lightblue", 
+                                       high = "blue", 
+                                       mid = "cornflowerblue", 
+                                       midpoint = 0.25, limit = c(0, 0.5),
+                                       space = "Lab", 
+                                       name="P-values") +
+                  theme_minimal() +
+                  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                                   size = 8, hjust = 1)) +
+                  labs(title = "P-values for each comparison",
+                       x = NULL,
+                       y = NULL) +
+                  coord_fixed()
+  print(plot_p)
+  ggsave(file.path(plotpath, "stats_plot_DAX.png"), dpi = 600)
+}else{
+  print("Matrix is not symmetric, I can't plot it. Go back and check your matrix again!")
+}
+
+# print which comparisons had significantly higher mantel R's
+
+# take the last row
+DAX_row <- binary_sig[nrow(binary_sig),]
+DAX_row <- data.frame(DAX_row)
+DAX_high_names <- rownames(DAX_row)[DAX_row == 1]
+
+message <- paste("The comparisons with the highest R are, in order of least to highest: ",
+                 paste(DAX_high_names, collapse = ", "))
+print(message)
+
+DAX_comparisons <- data.frame("comparison" = comp_names,
+                              "was_r_higher" = higher_r,
+                              "raw_p" = p_values,
+                              "corr_p" = corr_p_values,
+                              "met_significance" = met_significance)
+
+DAX_comparisons %>% 
+  knitr::kable(format = "html") %>% 
+  kable_styling()
+
+```
+
+# Compared modelled to real data
+
+```{r}
+
+mantel_res_FTSEMIB.MI <- mantel_results_models(FTSEMIB.MI_models_list,
+                                          FTSEMIB.MI_list,
+                                          nperm,
+                                          n_behave_models)
+mantel_res_FTSEMIB.MI$model <- rownames(mantel_res_FTSEMIB.MI)
+
+# order by increasing R
+mantel_res_FTSEMIB.MI <- mantel_res_FTSEMIB.MI[order(mantel_res_FTSEMIB.MI$r),]
+
+mantel_res_FTSEMIB.MI %>% knitr::kable(format = "html") %>% kable_styling()
+```
+
+# Compare resulting R values
+
+```{r}
+n1 <- nrow(FTSEMIB.MI_df)
+n2 <- nrow(FTSEMIB.MI_df)
+
+model_r_comparison_p <- data.frame()
+higher_model <- data.frame()
+comparison_name <- data.frame()
+
+for (i in 1:nrow(mantel_res_FTSEMIB.MI)){
+  for (j in 1:nrow(mantel_res_FTSEMIB.MI)){
+  
+  model_i <- mantel_res_FTSEMIB.MI[i, "model"]
+  model_j <- mantel_res_FTSEMIB.MI[j, "model"]
+  
+  comparison_name[i, j] <- paste0(model_i, "_", model_j)
+  
+  r_i <- mantel_res_FTSEMIB.MI[i, "r"]
+  r_j <- mantel_res_FTSEMIB.MI[j, "r"]
+  
+  result <- compare_correlations(r_i,
+                                 r_j,
+                                 alpha,
+                                 n1,
+                                 n2)
+  model_r_comparison_p[i, j] <- result$p_value
+  higher_model[i, j] <- ifelse(r_i > r_j, 
+                         "Yes", 
+                         "No")
+
+  }}
+
+
+mat_r <- as.matrix(higher_model)
+higher_r <- mat_r[lower.tri(mat_r)]
+
+mat_p <- as.matrix(model_r_comparison_p)
+p_values <- mat_p[lower.tri(mat_p)]
+
+mat_name <- as.matrix(comparison_name)
+comp_names <- mat_name[lower.tri(mat_name)]
+
+corr_p_values <- p.adjust(p_values, method = "fdr")
+met_significance <- ifelse(corr_p_values < alpha, "Yes", "No")
+
+# build symmetric matrix of corrected p-values for plotting
+corr_p_matrix <- matrix(0, nrow(mantel_res_FTSEMIB.MI),
+                        nrow(mantel_res_FTSEMIB.MI))
+
+
+corr_p_matrix[lower.tri(corr_p_matrix)] <- corr_p_values
+corr_p_matrix[upper.tri(corr_p_matrix)] <-
+  t(corr_p_matrix)[upper.tri(corr_p_matrix)]
+diag(corr_p_matrix) <- diag(mat_p)
+
+rownames(corr_p_matrix) <- mantel_res_FTSEMIB.MI$model
+colnames(corr_p_matrix) <- mantel_res_FTSEMIB.MI$model
+
+print(paste0("Is my matrix symmetric: ", isSymmetric(corr_p_matrix)))
+
+# create binary matrix of whether p < alpha
+binary_sig <- ifelse(corr_p_matrix < alpha, 0, 1)
+rownames(binary_sig) <- mantel_res_FTSEMIB.MI$model
+colnames(binary_sig) <- mantel_res_FTSEMIB.MI$model
+
+if (isSymmetric(corr_p_matrix)){
+  melted_mat <- melt(corr_p_matrix)
+  
+  plot_p <- ggplot(data = melted_mat, aes(x = Var1, 
+                                           y = Var2, 
+                                           fill = as.numeric(value))) +
+                  geom_tile() +
+                  scale_fill_gradient2(low = "lightblue", 
+                                       high = "blue", 
+                                       mid = "cornflowerblue", 
+                                       midpoint = 0.25, limit = c(0, 0.5),
+                                       space = "Lab", 
+                                       name="P-values") +
+                  theme_minimal() +
+                  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                                   size = 8, hjust = 1)) +
+                  labs(title = "P-values for each comparison",
+                       x = NULL,
+                       y = NULL) +
+                  coord_fixed()
+  print(plot_p)
+  ggsave(file.path(plotpath, "stats_plot_FTSEMIB.png"), dpi = 600)
+}else{
+  print("Matrix is not symmetric, I can't plot it. Go back and check your matrix again!")
+}
+
+# print which comparisons had significantly higher mantel R's
+
+# take the last row
+FTSEMIB.MI_row <- binary_sig[nrow(binary_sig),]
+FTSEMIB.MI_row <- data.frame(FTSEMIB.MI_row)
+FTSEMIB.MI_high_names <- rownames(FTSEMIB.MI_row)[FTSEMIB.MI_row == 1]
+
+message <- paste("The comparisons with the highest R are, in order of least to highest: ",
+                 paste(FTSEMIB.MI_high_names, collapse = ", "))
+print(message)
+
+FTSEMIB.MI_comparisons <- data.frame("comparison" = comp_names,
+                              "was_r_higher" = higher_r,
+                              "raw_p" = p_values,
+                              "corr_p" = corr_p_values,
+                              "met_significance" = met_significance)
+
+FTSEMIB.MI_comparisons %>% 
+  knitr::kable(format = "html") %>% 
+  kable_styling()
+
+```
+
+# Compared modelled to real data
+
+```{r}
+
+mantel_res_FCHI <- mantel_results_models(FCHI_models_list,
+                                          FCHI_list,
+                                          nperm,
+                                          n_behave_models)
+mantel_res_FCHI$model <- rownames(mantel_res_FCHI)
+
+# order by increasing R
+mantel_res_FCHI <- mantel_res_FCHI[order(mantel_res_FCHI$r),]
+
+mantel_res_FCHI %>% knitr::kable(format = "html") %>% kable_styling()
+```
+
+# Compare resulting R values
+
+```{r}
+n1 <- nrow(FCHI_df)
+n2 <- nrow(FCHI_df)
+
+model_r_comparison_p <- data.frame()
+higher_model <- data.frame()
+comparison_name <- data.frame()
+
+for (i in 1:nrow(mantel_res_FCHI)){
+  for (j in 1:nrow(mantel_res_FCHI)){
+  
+  model_i <- mantel_res_FCHI[i, "model"]
+  model_j <- mantel_res_FCHI[j, "model"]
+  
+  comparison_name[i, j] <- paste0(model_i, "_", model_j)
+  
+  r_i <- mantel_res_FCHI[i, "r"]
+  r_j <- mantel_res_FCHI[j, "r"]
+  
+  result <- compare_correlations(r_i,
+                                 r_j,
+                                 alpha,
+                                 n1,
+                                 n2)
+  model_r_comparison_p[i, j] <- result$p_value
+  higher_model[i, j] <- ifelse(r_i > r_j, 
+                         "Yes", 
+                         "No")
+
+  }}
+
+
+mat_r <- as.matrix(higher_model)
+higher_r <- mat_r[lower.tri(mat_r)]
+
+mat_p <- as.matrix(model_r_comparison_p)
+p_values <- mat_p[lower.tri(mat_p)]
+
+mat_name <- as.matrix(comparison_name)
+comp_names <- mat_name[lower.tri(mat_name)]
+
+corr_p_values <- p.adjust(p_values, method = "fdr")
+met_significance <- ifelse(corr_p_values < alpha, "Yes", "No")
+
+# build symmetric matrix of corrected p-values for plotting
+corr_p_matrix <- matrix(0, nrow(mantel_res_FCHI),
+                        nrow(mantel_res_FCHI))
+
+
+corr_p_matrix[lower.tri(corr_p_matrix)] <- corr_p_values
+corr_p_matrix[upper.tri(corr_p_matrix)] <-
+  t(corr_p_matrix)[upper.tri(corr_p_matrix)]
+diag(corr_p_matrix) <- diag(mat_p)
+
+rownames(corr_p_matrix) <- mantel_res_FCHI$model
+colnames(corr_p_matrix) <- mantel_res_FCHI$model
+
+print(paste0("Is my matrix symmetric: ", isSymmetric(corr_p_matrix)))
+
+# create binary matrix of whether p < alpha
+binary_sig <- ifelse(corr_p_matrix < alpha, 0, 1)
+rownames(binary_sig) <- mantel_res_FCHI$model
+colnames(binary_sig) <- mantel_res_FCHI$model
+
+if (isSymmetric(corr_p_matrix)){
+  melted_mat <- melt(corr_p_matrix)
+  
+  plot_p <- ggplot(data = melted_mat, aes(x = Var1, 
+                                           y = Var2, 
+                                           fill = as.numeric(value))) +
+                  geom_tile() +
+                  scale_fill_gradient2(low = "lightblue", 
+                                       high = "blue", 
+                                       mid = "cornflowerblue", 
+                                       midpoint = 0.25, limit = c(0, 0.5),
+                                       space = "Lab", 
+                                       name="P-values") +
+                  theme_minimal() +
+                  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                                   size = 8, hjust = 1)) +
+                  labs(title = "P-values for each comparison",
+                       x = NULL,
+                       y = NULL) +
+                  coord_fixed()
+  print(plot_p)
+  ggsave(file.path(plotpath, "stats_plot_FCHI.png"), dpi = 600)
+}else{
+  print("Matrix is not symmetric, I can't plot it. Go back and check your matrix again!")
+}
+
+# print which comparisons had significantly higher mantel R's
+
+# take the last row
+FCHI_row <- binary_sig[nrow(binary_sig),]
+FCHI_row <- data.frame(FCHI_row)
+FCHI_high_names <- rownames(FCHI_row)[FCHI_row == 1]
+
+message <- paste("The comparisons with the highest R are, in order of least to highest: ",
+                 paste(FCHI_high_names, collapse = ", "))
+print(message)
+
+FCHI_comparisons <- data.frame("comparison" = comp_names,
+                              "was_r_higher" = higher_r,
+                              "raw_p" = p_values,
+                              "corr_p" = corr_p_values,
+                              "met_significance" = met_significance)
+
+FCHI_comparisons %>% 
+  knitr::kable(format = "html") %>% 
+  kable_styling()
+
+```
+
+# Compared modelled to real data
+
+```{r}
+
+mantel_res_AXJO <- mantel_results_models(AXJO_models_list,
+                                          AXJO_list,
+                                          nperm,
+                                          n_behave_models)
+mantel_res_AXJO$model <- rownames(mantel_res_AXJO)
+
+# order by increasing R
+mantel_res_AXJO <- mantel_res_AXJO[order(mantel_res_AXJO$r),]
+
+mantel_res_AXJO %>% knitr::kable(format = "html") %>% kable_styling()
+```
+
+# Compare resulting R values
+
+```{r}
+n1 <- nrow(AXJO_df)
+n2 <- nrow(AXJO_df)
+
+model_r_comparison_p <- data.frame()
+higher_model <- data.frame()
+comparison_name <- data.frame()
+
+for (i in 1:nrow(mantel_res_AXJO)){
+  for (j in 1:nrow(mantel_res_AXJO)){
+  
+  model_i <- mantel_res_AXJO[i, "model"]
+  model_j <- mantel_res_AXJO[j, "model"]
+  
+  comparison_name[i, j] <- paste0(model_i, "_", model_j)
+  
+  r_i <- mantel_res_AXJO[i, "r"]
+  r_j <- mantel_res_AXJO[j, "r"]
+  
+  result <- compare_correlations(r_i,
+                                 r_j,
+                                 alpha,
+                                 n1,
+                                 n2)
+  model_r_comparison_p[i, j] <- result$p_value
+  higher_model[i, j] <- ifelse(r_i > r_j, 
+                         "Yes", 
+                         "No")
+
+  }}
+
+
+mat_r <- as.matrix(higher_model)
+higher_r <- mat_r[lower.tri(mat_r)]
+
+mat_p <- as.matrix(model_r_comparison_p)
+p_values <- mat_p[lower.tri(mat_p)]
+
+mat_name <- as.matrix(comparison_name)
+comp_names <- mat_name[lower.tri(mat_name)]
+
+corr_p_values <- p.adjust(p_values, method = "fdr")
+met_significance <- ifelse(corr_p_values < alpha, "Yes", "No")
+
+# build symmetric matrix of corrected p-values for plotting
+corr_p_matrix <- matrix(0, nrow(mantel_res_AXJO),
+                        nrow(mantel_res_AXJO))
+
+
+corr_p_matrix[lower.tri(corr_p_matrix)] <- corr_p_values
+corr_p_matrix[upper.tri(corr_p_matrix)] <-
+  t(corr_p_matrix)[upper.tri(corr_p_matrix)]
+diag(corr_p_matrix) <- diag(mat_p)
+
+rownames(corr_p_matrix) <- mantel_res_AXJO$model
+colnames(corr_p_matrix) <- mantel_res_AXJO$model
+
+print(paste0("Is my matrix symmetric: ", isSymmetric(corr_p_matrix)))
+
+# create binary matrix of whether p < alpha
+binary_sig <- ifelse(corr_p_matrix < alpha, 0, 1)
+rownames(binary_sig) <- mantel_res_AXJO$model
+colnames(binary_sig) <- mantel_res_AXJO$model
+
+if (isSymmetric(corr_p_matrix)){
+  melted_mat <- melt(corr_p_matrix)
+  
+  plot_p <- ggplot(data = melted_mat, aes(x = Var1, 
+                                           y = Var2, 
+                                           fill = as.numeric(value))) +
+                  geom_tile() +
+                  scale_fill_gradient2(low = "lightblue", 
+                                       high = "blue", 
+                                       mid = "cornflowerblue", 
+                                       midpoint = 0.25, limit = c(0, 0.5),
+                                       space = "Lab", 
+                                       name="P-values") +
+                  theme_minimal() +
+                  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                                   size = 8, hjust = 1)) +
+                  labs(title = "P-values for each comparison",
+                       x = NULL,
+                       y = NULL) +
+                  coord_fixed()
+  print(plot_p)
+  ggsave(file.path(plotpath, "stats_plot_AXJO.png"), dpi = 600)
+}else{
+  print("Matrix is not symmetric, I can't plot it. Go back and check your matrix again!")
+}
+
+# print which comparisons had significantly higher mantel R's
+
+# take the last row
+AXJO_row <- binary_sig[nrow(binary_sig),]
+AXJO_row <- data.frame(AXJO_row)
+AXJO_high_names <- rownames(AXJO_row)[AXJO_row == 1]
+
+message <- paste("The comparisons with the highest R are, in order of least to highest: ",
+                 paste(AXJO_high_names, collapse = ", "))
+print(message)
+
+AXJO_comparisons <- data.frame("comparison" = comp_names,
+                              "was_r_higher" = higher_r,
+                              "raw_p" = p_values,
+                              "corr_p" = corr_p_values,
+                              "met_significance" = met_significance)
+
+AXJO_comparisons %>% 
+  knitr::kable(format = "html") %>% 
+  kable_styling()
+
+```
+
+# Compared modelled to real data
+
+```{r}
+
+mantel_res_HSI <- mantel_results_models(HSI_models_list,
+                                          HSI_list,
+                                          nperm,
+                                          n_behave_models)
+mantel_res_HSI$model <- rownames(mantel_res_HSI)
+# order by increasing R
+mantel_res_HSI <- mantel_res_HSI[order(mantel_res_HSI$r),]
+
+mantel_res_HSI %>% knitr::kable(format = "html") %>% kable_styling()
+```
+
+# Compare resulting R values
+
+```{r}
+n1 <- nrow(HSI_df)
+n2 <- nrow(HSI_df)
+
+model_r_comparison_p <- data.frame()
+higher_model <- data.frame()
+comparison_name <- data.frame()
+
+for (i in 1:nrow(mantel_res_HSI)){
+  for (j in 1:nrow(mantel_res_HSI)){
+  
+  model_i <- mantel_res_HSI[i, "model"]
+  model_j <- mantel_res_HSI[j, "model"]
+  
+  comparison_name[i, j] <- paste0(model_i, "_", model_j)
+  
+  r_i <- mantel_res_HSI[i, "r"]
+  r_j <- mantel_res_HSI[j, "r"]
+  
+  result <- compare_correlations(r_i,
+                                 r_j,
+                                 alpha,
+                                 n1,
+                                 n2)
+  model_r_comparison_p[i, j] <- result$p_value
+  higher_model[i, j] <- ifelse(r_i > r_j, 
+                         "Yes", 
+                         "No")
+
+  }}
+
+
+mat_r <- as.matrix(higher_model)
+higher_r <- mat_r[lower.tri(mat_r)]
+
+mat_p <- as.matrix(model_r_comparison_p)
+p_values <- mat_p[lower.tri(mat_p)]
+
+mat_name <- as.matrix(comparison_name)
+comp_names <- mat_name[lower.tri(mat_name)]
+
+corr_p_values <- p.adjust(p_values, method = "fdr")
+met_significance <- ifelse(corr_p_values < alpha, "Yes", "No")
+
+# build symmetric matrix of corrected p-values for plotting
+corr_p_matrix <- matrix(0, nrow(mantel_res_HSI),
+                        nrow(mantel_res_HSI))
+
+
+corr_p_matrix[lower.tri(corr_p_matrix)] <- corr_p_values
+corr_p_matrix[upper.tri(corr_p_matrix)] <-
+  t(corr_p_matrix)[upper.tri(corr_p_matrix)]
+diag(corr_p_matrix) <- diag(mat_p)
+
+rownames(corr_p_matrix) <- mantel_res_HSI$model
+colnames(corr_p_matrix) <- mantel_res_HSI$model
+
+print(paste0("Is my matrix symmetric: ", isSymmetric(corr_p_matrix)))
+
+# create binary matrix of whether p < alpha
+binary_sig <- ifelse(corr_p_matrix < alpha, 0, 1)
+rownames(binary_sig) <- mantel_res_HSI$model
+colnames(binary_sig) <- mantel_res_HSI$model
+
+if (isSymmetric(corr_p_matrix)){
+  melted_mat <- melt(corr_p_matrix)
+  
+  plot_p <- ggplot(data = melted_mat, aes(x = Var1, 
+                                           y = Var2, 
+                                           fill = as.numeric(value))) +
+                  geom_tile() +
+                  scale_fill_gradient2(low = "lightblue", 
+                                       high = "blue", 
+                                       mid = "cornflowerblue", 
+                                       midpoint = 0.25, limit = c(0, 0.5),
+                                       space = "Lab", 
+                                       name="P-values") +
+                  theme_minimal() +
+                  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                                   size = 8, hjust = 1)) +
+                  labs(title = "P-values for each comparison",
+                       x = NULL,
+                       y = NULL) +
+                  coord_fixed()
+  print(plot_p)
+  ggsave(file.path(plotpath, "stats_plot_HSI.png"), dpi = 600)
+}else{
+  print("Matrix is not symmetric, I can't plot it. Go back and check your matrix again!")
+}
+
+# print which comparisons had significantly higher mantel R's
+
+# take the last row
+HSI_row <- binary_sig[nrow(binary_sig),]
+HSI_row <- data.frame(HSI_row)
+HSI_high_names <- rownames(HSI_row)[HSI_row == 1]
+
+message <- paste("The comparisons with the highest R are, in order of least to highest: ",
+                 paste(HSI_high_names, collapse = ", "))
+print(message)
+
+HSI_comparisons <- data.frame("comparison" = comp_names,
+                              "was_r_higher" = higher_r,
+                              "raw_p" = p_values,
+                              "corr_p" = corr_p_values,
+                              "met_significance" = met_significance)
+
+HSI_comparisons %>% 
+  knitr::kable(format = "html") %>% 
+  kable_styling()
+
+```
+
+
+```{python plot FTSE, message = FALSE, warning = FALSE}
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import glob
+import os
+
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure
+
+path = "/Users/scrockford/Library/CloudStorage/OneDrive-FondazioneIstitutoItalianoTecnologia/punctuated_similarity_proof/results/FTSE/*.csv"
+
+cmap = 'mako'
+
+for fname in glob.glob(path):
+
+  data2plot = pd.read_csv(fname)
+  plotname = os.path.basename(fname)
+  plotname = plotname.replace(".csv", "")
+
+  plt.figure()
+  plt.title(plotname, fontsize = 20)
+  sns.heatmap(data2plot,
+              cmap = cmap,
+              square=True,
+              cbar=True,
+              xticklabels=False,
+              yticklabels=False)
+
+  plt.show()
+```
+
+```{python plot GSPC, message = FALSE, warning = FALSE}
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import glob
+import os
+
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure
+
+path = "/Users/scrockford/Library/CloudStorage/OneDrive-FondazioneIstitutoItalianoTecnologia/punctuated_similarity_proof/results/GSPC/*.csv"
+
+cmap = 'mako'
+
+for fname in glob.glob(path):
+
+  data2plot = pd.read_csv(fname)
+  plotname = os.path.basename(fname)
+  plotname = plotname.replace(".csv", "")
+
+  plt.figure()
+  plt.title(plotname, fontsize =20)
+  sns.heatmap(data2plot,
+              cmap = cmap,
+              square=True,
+              cbar=True,
+              xticklabels=False,
+              yticklabels=False)
+
+  plt.show()
+```
+
+```{python plot DAX, message = FALSE, warning = FALSE}
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import glob
+import os
+
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure
+
+path = "/Users/scrockford/Library/CloudStorage/OneDrive-FondazioneIstitutoItalianoTecnologia/punctuated_similarity_proof/results/DAX/*.csv"
+
+cmap = 'mako'
+
+for fname in glob.glob(path):
+
+  data2plot = pd.read_csv(fname)
+  plotname = os.path.basename(fname)
+  plotname = plotname.replace(".csv", "")
+
+  plt.figure()
+  plt.title(plotname, fontsize =20)
+  sns.heatmap(data2plot,
+              cmap = cmap,
+              square=True,
+              cbar=True,
+              xticklabels=False,
+              yticklabels=False)
+
+  plt.show()
+```
+
+```{python plot FTSEMIB, message = FALSE, warning = FALSE}
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import glob
+import os
+
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure
+
+path = "/Users/scrockford/Library/CloudStorage/OneDrive-FondazioneIstitutoItalianoTecnologia/punctuated_similarity_proof/results/FTSEMIB/*.csv"
+
+cmap = 'mako'
+
+for fname in glob.glob(path):
+
+  data2plot = pd.read_csv(fname)
+  plotname = os.path.basename(fname)
+  plotname = plotname.replace(".csv", "")
+
+  plt.figure()
+  plt.title(plotname, fontsize =20)
+  sns.heatmap(data2plot,
+              cmap = cmap,
+              square=True,
+              cbar=True,
+              xticklabels=False,
+              yticklabels=False)
+
+  plt.show()
+```
+
+
+```{python plot FCHI, message = FALSE, warning = FALSE}
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import glob
+import os
+
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure
+
+path = "/Users/scrockford/Library/CloudStorage/OneDrive-FondazioneIstitutoItalianoTecnologia/punctuated_similarity_proof/results/FCHI/*.csv"
+
+cmap = 'mako'
+
+for fname in glob.glob(path):
+
+  data2plot = pd.read_csv(fname)
+  plotname = os.path.basename(fname)
+  plotname = plotname.replace(".csv", "")
+
+  plt.figure()
+  plt.title(plotname, fontsize =20)
+  sns.heatmap(data2plot,
+              cmap = cmap,
+              square=True,
+              cbar=True,
+              xticklabels=False,
+              yticklabels=False)
+
+  plt.show()
+```
+
+
+```{python plot AXJO, message = FALSE, warning = FALSE}
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import glob
+import os
+
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure
+
+path = "/Users/scrockford/Library/CloudStorage/OneDrive-FondazioneIstitutoItalianoTecnologia/punctuated_similarity_proof/results/AXJO/*.csv"
+
+cmap = 'mako'
+
+for fname in glob.glob(path):
+
+  data2plot = pd.read_csv(fname)
+  plotname = os.path.basename(fname)
+  plotname = plotname.replace(".csv", "")
+
+  plt.figure()
+  plt.title(plotname, fontsize =20)
+  sns.heatmap(data2plot,
+              cmap = cmap,
+              square=True,
+              cbar=True,
+              xticklabels=False,
+              yticklabels=False)
+
+  plt.show()
+```
+
+
+```{python plot HSI, message = FALSE, warning = FALSE}
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import glob
+import os
+
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure
+
+path = "/Users/scrockford/Library/CloudStorage/OneDrive-FondazioneIstitutoItalianoTecnologia/punctuated_similarity_proof/results/HSI/*.csv"
+
+cmap = 'mako'
+
+for fname in glob.glob(path):
+
+  data2plot = pd.read_csv(fname)
+  plotname = os.path.basename(fname)
+  plotname = plotname.replace(".csv", "")
+
+  plt.figure()
+  plt.title(plotname, fontsize =20)
+  sns.heatmap(data2plot,
+              cmap = cmap,
+              square=True,
+              cbar=True,
+              xticklabels=False,
+              yticklabels=False)
+
+  plt.show()
+```
